@@ -15,13 +15,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: [
-      "http://localhost:3000", 
-      "http://127.0.0.1:3000",
-      /^http:\/\/192\.168\.\d+\.\d+:3000$/,
-      /^http:\/\/10\.\d+\.\d+\.\d+:3000$/,
-      /^http:\/\/172\.(1[6-9]|2[0-9]|3[0-1])\.\d+\.\d+:3000$/
-    ],
+    origin: true, // Tüm origin'lere izin ver
     methods: ["GET", "POST", "DELETE", "PUT"],
     credentials: true
   },
@@ -30,7 +24,7 @@ const io = new Server(server, {
 
 app.use(express.json());
 app.use(cors({
-  origin: [/^http:\/\/localhost:3000$/, /^http:\/\/192\.168\.1\.\d+:3000$/],
+  origin: true, // Tüm origin'lere izin ver
   methods: ["GET", "POST", "PUT", "DELETE"],
   credentials: true
 }));
@@ -232,6 +226,8 @@ const Settings = require('./models/Settings');
 console.log('Models yüklendi - User:', !!User, 'Task:', !!Task, 'Process:', !!Process, 'Customer:', !!Customer, 'Communication:', !!Communication, 'Settings:', !!Settings);
 
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () => {
-  console.log(`Backend sunucusu http://localhost:${PORT} adresinde çalışıyor.`);
+server.listen(PORT, '0.0.0.0', () => {
+  console.log(`Backend sunucusu http://0.0.0.0:${PORT} adresinde çalışıyor.`);
+  console.log(`Yerel erişim: http://localhost:${PORT}`);
+  console.log(`Ağ erişimi: http://[SUNUCU_IP]:${PORT}`);
 });
