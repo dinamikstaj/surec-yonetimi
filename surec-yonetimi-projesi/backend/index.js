@@ -15,18 +15,31 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: true, // Tüm origin'lere izin ver
+    origin: "*", // Tüm origin'lere izin ver
     methods: ["GET", "POST", "DELETE", "PUT"],
-    credentials: true
+    credentials: false // credentials'ı false yap
   },
   transports: ['websocket', 'polling']
 });
 
 app.use(express.json());
+
+// Ek CORS middleware
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  if (req.method === 'OPTIONS') {
+    res.sendStatus(200);
+  } else {
+    next();
+  }
+});
+
 app.use(cors({
-  origin: true, // Tüm origin'lere izin ver
+  origin: "*", // Tüm origin'lere izin ver
   methods: ["GET", "POST", "PUT", "DELETE"],
-  credentials: true
+  credentials: false // credentials'ı false yap
 }));
 app.use(express.static(path.join(__dirname, 'public')));
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
