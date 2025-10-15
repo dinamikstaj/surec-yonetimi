@@ -306,10 +306,11 @@ router.post('/:id/nudge', async (req, res) => {
             }
         });
 
-        // Socket.io ile gerçek zamanlı bildirim gönder
+        // Socket.io ile gerçek zamanlı bildirim gönder - sadece hedef kullanıcıya
         const io = req.app.get('io');
         if (io) {
-            io.emit('nudge_notification', {
+            // Sadece hedef kullanıcıya gönder (çift mesaj önleme)
+            io.to(`user_${userId}`).emit('nudge_notification', {
                 userId: userId,
                 message: message || `${sender.name || sender.email} sizi dürtüyor!`,
                 senderName: sender.name || sender.email,
@@ -317,9 +318,10 @@ router.post('/:id/nudge', async (req, res) => {
                 taskId: taskId,
                 taskTitle: taskTitle,
                 motivationalMessage: finalMotivationalMessage,
+                targetUserSound: targetUser.notificationSound,
                 timestamp: new Date().toISOString()
             });
-            console.log('Dürt bildirimi gönderildi:', targetUser.email, taskTitle ? `- Görev: ${taskTitle}` : '');
+            console.log('Dürt bildirimi gönderildi:', targetUser.email, `Ses: ${targetUser.notificationSound || 'none'}`, taskTitle ? `- Görev: ${taskTitle}` : '');
         }
 
         res.json({ 
@@ -697,6 +699,50 @@ router.get('/:id/achievements', async (req, res) => {
         console.error('Başarılar yükleme hatası:', err.message);
         res.status(500).json({ msg: 'Sunucu hatası: ' + err.message });
     }
+});
+
+// E-posta adreslerine göre ses ataması yap
+router.post('/assign-sounds-by-email', async (req, res) => {
+  try {
+    console.log('🎵 E-posta adreslerine göre ses ataması başlatılıyor...');
+    
+    // Tüm kullanıcıları getir
+    const users = await User.find({});
+    let updatedCount = 0;
+    
+    for (const user of users) {
+      const email = user.email?.toLowerCase();
+      let newSound = null;
+      
+      // E-posta adresine göre ses ataması
+      if (email?.includes('muharrem@dinamikotomasyon.com')) {
+        newSound = 'muharrreeeeem';
+      } else if (email?.includes('ibrahimkilic@dinamikotomasyon.com')) {
+        newSound = 'ibraaaamabi';
+      } else if (email?.includes('hamza@dinamikotomasyon.com')) {
+        newSound = 'hamzaaa';
+      } else if (email?.includes('selcuk@dinamikotomasyon.com')) {
+        newSound = 'lokmalaaaa';
+      }
+      
+      // Eğer eşleşme varsa güncelle
+      if (newSound && user.notificationSound !== newSound) {
+        await User.findByIdAndUpdate(user._id, { notificationSound: newSound });
+        console.log(`🎵 ${user.name} (${user.email}) → ${newSound} sesi atandı`);
+        updatedCount++;
+      }
+    }
+    
+    res.json({ 
+      success: true, 
+      message: `${updatedCount} kullanıcının sesi güncellendi`,
+      updatedCount 
+    });
+    
+  } catch (error) {
+    console.error('Ses atama hatası:', error);
+    res.status(500).json({ msg: 'Ses atama başarısız', error: error.message });
+  }
 });
 
 module.exports = router;

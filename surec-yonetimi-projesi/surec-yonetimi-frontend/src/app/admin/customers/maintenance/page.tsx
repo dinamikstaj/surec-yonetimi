@@ -34,19 +34,33 @@ import {
 
 interface Customer {
   _id: string;
-  company: string;
-  name: string;
-  email: string;
-  phone: string;
+  cariKod?: string;
+  cariUnvan1?: string;
+  cariUnvan2?: string;
+  cariGuid?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
   address?: string;
   city?: string;
   district?: string;
   vkn?: string;
-  hasMaintenanceContract?: boolean;
-  maintenanceStartDate?: string;
-  maintenanceEndDate?: string;
-  status?: string;
+  taxOffice?: string;
+  eftAccountNumber?: string;
+  isActive?: boolean;
+  isLocked?: boolean;
+  isDeleted?: boolean;
+  eInvoiceEnabled?: boolean;
+  eInvoiceStartDate?: string;
+  smsNotification?: boolean;
+  emailNotification?: boolean;
+  reconciliationEmail?: string;
+  createDate?: string;
+  lastUpdateDate?: string;
+  createUser?: number;
+  lastUpdateUser?: number;
   createdAt: string;
+  updatedAt: string;
 }
 
 export default function MaintenanceCustomersPage() {
@@ -72,6 +86,117 @@ export default function MaintenanceCustomersPage() {
     maintenanceEndDate: '',
   });
 
+  // Şehir isimlerini düzeltme fonksiyonu
+  const getCityName = (district: string | undefined): string => {
+    if (!district) return '';
+    
+    const cityMap: { [key: string]: string } = {
+      // Türkiye'nin 81 ili
+      'ADANA': 'Adana',
+      'ADIYAMAN': 'Adıyaman',
+      'AFYONKARAHISAR': 'Afyonkarahisar',
+      'AGRI': 'Ağrı',
+      'AMASYA': 'Amasya',
+      'ANKARA': 'Ankara',
+      'ANTALYA': 'Antalya',
+      'ARTVIN': 'Artvin',
+      'AYDIN': 'Aydın',
+      'BALIKESIR': 'Balıkesir',
+      'BILECIK': 'Bilecik',
+      'BINGOL': 'Bingöl',
+      'BITLIS': 'Bitlis',
+      'BOLU': 'Bolu',
+      'BURDUR': 'Burdur',
+      'BURSA': 'Bursa',
+      'CANAKKALE': 'Çanakkale',
+      'CANKIRI': 'Çankırı',
+      'CORUM': 'Çorum',
+      'DENIZLI': 'Denizli',
+      'DIYARBAKIR': 'Diyarbakır',
+      'EDIRNE': 'Edirne',
+      'ELAZIG': 'Elazığ',
+      'ERZINCAN': 'Erzincan',
+      'ERZURUM': 'Erzurum',
+      'ESKISEHIR': 'Eskişehir',
+      'GAZIANTEP': 'Gaziantep',
+      'GIRESUN': 'Giresun',
+      'GUMUSHANE': 'Gümüşhane',
+      'HAKKARI': 'Hakkari',
+      'HATAY': 'Hatay',
+      'ISPARTA': 'Isparta',
+      'MERSIN': 'Mersin',
+      'ISTANBUL': 'İstanbul',
+      'IZMIR': 'İzmir',
+      'KARS': 'Kars',
+      'KASTAMONU': 'Kastamonu',
+      'KAYSERI': 'Kayseri',
+      'KIRKLARELI': 'Kırklareli',
+      'KIRSEHIR': 'Kırşehir',
+      'KOCAELI': 'Kocaeli',
+      'KONYA': 'Konya',
+      'KUTAHYA': 'Kütahya',
+      'MALATYA': 'Malatya',
+      'MANISA': 'Manisa',
+      'KAHRAMANMARAS': 'Kahramanmaraş',
+      'MARDIN': 'Mardin',
+      'MUGLA': 'Muğla',
+      'MUS': 'Muş',
+      'NEVSEHIR': 'Nevşehir',
+      'NIGDE': 'Niğde',
+      'ORDU': 'Ordu',
+      'RIZE': 'Rize',
+      'SAKARYA': 'Sakarya',
+      'SAMSUN': 'Samsun',
+      'SIIRT': 'Siirt',
+      'SINOP': 'Sinop',
+      'SIVAS': 'Sivas',
+      'TEKIRDAG': 'Tekirdağ',
+      'TOKAT': 'Tokat',
+      'TRABZON': 'Trabzon',
+      'TUNCELI': 'Tunceli',
+      'SANLIURFA': 'Şanlıurfa',
+      'USAK': 'Uşak',
+      'VAN': 'Van',
+      'YOZGAT': 'Yozgat',
+      'ZONGULDAK': 'Zonguldak',
+      'AKSARAY': 'Aksaray',
+      'BAYBURT': 'Bayburt',
+      'KARAMAN': 'Karaman',
+      'KIRIKKALE': 'Kırıkkale',
+      'BATMAN': 'Batman',
+      'SIRNAK': 'Şırnak',
+      'BARTIN': 'Bartın',
+      'ARDAHAN': 'Ardahan',
+      'IGDIR': 'Iğdır',
+      'YALOVA': 'Yalova',
+      'KARABUK': 'Karabük',
+      'KILIS': 'Kilis',
+      'OSMANIYE': 'Osmaniye',
+      'DUZCE': 'Düzce',
+      
+      // Kısaltmalar ve alternatif yazımlar
+      'G.ANTEP': 'Gaziantep',
+      'STANBUL': 'İstanbul',
+      'Ş.URFA': 'Şanlıurfa',
+      'S.URFA': 'Şanlıurfa',
+      'ICEL': 'Mersin',
+      'SEHIR': 'Şehir',
+      'VAR': 'Var',
+      '0': 'Bilinmiyor',
+      '1': 'Bilinmiyor',
+      '2': 'Bilinmiyor',
+      '3': 'Bilinmiyor',
+      '4': 'Bilinmiyor',
+      '5': 'Bilinmiyor',
+      '6': 'Bilinmiyor',
+      '7': 'Bilinmiyor',
+      '8': 'Bilinmiyor',
+      '9': 'Bilinmiyor'
+    };
+    
+    return cityMap[district.toUpperCase()] || district;
+  };
+
   useEffect(() => {
     fetchCustomers();
   }, []);
@@ -82,8 +207,8 @@ export default function MaintenanceCustomersPage() {
       
       if (response.ok) {
         const data = await response.json();
-        const maintenanceCustomers = data.filter((c: Customer) => c.hasMaintenanceContract === true);
-        setCustomers(maintenanceCustomers);
+        // Yeni şemada hasMaintenanceContract alanı yok, tüm müşterileri göster
+        setCustomers(data);
       } else {
         toast.error('Müşteriler yüklenemedi');
       }
@@ -148,40 +273,27 @@ export default function MaintenanceCustomersPage() {
   };
 
   const filteredCustomers = customers.filter(customer =>
-    customer.company?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.city?.toLowerCase().includes(searchTerm.toLowerCase())
+    customer.cariUnvan1?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    customer.cariUnvan2?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    customer.cariKod?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    customer.city?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    customer.vkn?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   const getMaintenanceStatus = (customer: Customer) => {
-    if (!customer.maintenanceEndDate) return null;
-    
-    const endDate = new Date(customer.maintenanceEndDate);
-    const now = new Date();
-    const daysLeft = Math.floor((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    
-    if (daysLeft < 0) {
-      return { text: 'Süresi Dolmuş', color: 'border-red-200 dark:border-red-900', icon: AlertTriangle, textColor: 'text-red-600' };
-    } else if (daysLeft < 30) {
-      return { text: `${daysLeft} gün kaldı`, color: 'border-orange-200 dark:border-orange-900', icon: Clock, textColor: 'text-orange-600' };
+    // Yeni şemada maintenanceEndDate alanı yok, bu yüzden basit bir durum gösterelim
+    if (customer.isActive === true) {
+      return { text: 'Aktif', color: 'border-green-200 dark:border-green-900', icon: CheckCircle, textColor: 'text-green-600' };
+    } else if (customer.isActive === false) {
+      return { text: 'Pasif', color: 'border-red-200 dark:border-red-900', icon: AlertTriangle, textColor: 'text-red-600' };
     } else {
-      return { text: `${daysLeft} gün kaldı`, color: 'border-border', icon: CheckCircle, textColor: 'text-foreground' };
+      return { text: 'Bilinmiyor', color: 'border-gray-200 dark:border-gray-900', icon: Clock, textColor: 'text-gray-600' };
     }
   };
 
-  const urgentRenewals = customers.filter(c => {
-    if (!c.maintenanceEndDate) return false;
-    const endDate = new Date(c.maintenanceEndDate);
-    const now = new Date();
-    const daysLeft = Math.floor((endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-    return daysLeft >= 0 && daysLeft < 30;
-  }).length;
+  const urgentRenewals = customers.filter(c => c.isActive === false).length;
 
-  const expiredContracts = customers.filter(c => {
-    if (!c.maintenanceEndDate) return false;
-    return new Date(c.maintenanceEndDate) < new Date();
-  }).length;
+  const expiredContracts = customers.filter(c => c.isDeleted === true).length;
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -235,10 +347,7 @@ export default function MaintenanceCustomersPage() {
               </CardHeader>
               <CardContent>
                 <div className="text-3xl font-bold">
-                  {customers.filter(c => {
-                    if (!c.maintenanceEndDate) return false;
-                    return new Date(c.maintenanceEndDate) > new Date();
-                  }).length}
+                  {customers.filter(c => c.isActive === true).length}
                 </div>
                 <p className="text-xs text-muted-foreground mt-1">Geçerli anlaşmalar</p>
               </CardContent>
@@ -332,11 +441,11 @@ export default function MaintenanceCustomersPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <h3 className="font-bold mb-1 truncate">
-                            {customer.company}
+                            {customer.cariUnvan1 || customer.cariUnvan2 || 'İsimsiz Müşteri'}
                           </h3>
                           <p className="text-sm text-muted-foreground flex items-center gap-1">
                             <Users className="h-3 w-3" />
-                            {customer.name}
+                            {customer.cariKod || customer.vkn || 'Kod yok'}
                           </p>
                         </div>
                         <Badge variant="secondary">
@@ -347,43 +456,35 @@ export default function MaintenanceCustomersPage() {
 
                       {/* Contact Info */}
                       <div className="space-y-2 mb-4">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Mail className="h-4 w-4" />
-                          <span className="truncate">{customer.email}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Phone className="h-4 w-4" />
-                          <span>{customer.phone}</span>
-                        </div>
-                        {customer.city && (
+                        {customer.district && (
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <MapPin className="h-4 w-4" />
-                            <span>{customer.city}</span>
+                            <span>{getCityName(customer.district)}</span>
                           </div>
                         )}
                       </div>
 
-                      {/* Maintenance Dates */}
-                      {(customer.maintenanceStartDate || customer.maintenanceEndDate) && (
-                        <div className="space-y-2 mb-4">
-                          {customer.maintenanceStartDate && (
-                            <div className="flex items-center justify-between text-xs bg-muted/30 p-2 rounded-lg">
-                              <span className="text-muted-foreground">Başlangıç</span>
-                              <span className="font-medium">
-                                {new Date(customer.maintenanceStartDate).toLocaleDateString('tr-TR')}
-                              </span>
-                            </div>
-                          )}
-                          {customer.maintenanceEndDate && (
-                            <div className="flex items-center justify-between text-xs bg-muted/30 p-2 rounded-lg">
-                              <span className="text-muted-foreground">Bitiş</span>
-                              <span className="font-medium">
-                                {new Date(customer.maintenanceEndDate).toLocaleDateString('tr-TR')}
-                              </span>
-                            </div>
-                          )}
-                        </div>
-                      )}
+                      {/* Ek Bilgiler */}
+                      <div className="space-y-2 mb-4">
+                        {customer.vkn && (
+                          <div className="flex items-center justify-between text-xs bg-muted/30 p-2 rounded-lg">
+                            <span className="text-muted-foreground">VKN</span>
+                            <span className="font-medium">{customer.vkn}</span>
+                          </div>
+                        )}
+                        {customer.eInvoiceEnabled && (
+                          <div className="flex items-center justify-between text-xs bg-muted/30 p-2 rounded-lg">
+                            <span className="text-muted-foreground">E-Fatura</span>
+                            <span className="font-medium text-green-600">Aktif</span>
+                          </div>
+                        )}
+                        {customer.smsNotification && (
+                          <div className="flex items-center justify-between text-xs bg-muted/30 p-2 rounded-lg">
+                            <span className="text-muted-foreground">SMS</span>
+                            <span className="font-medium text-blue-600">Aktif</span>
+                          </div>
+                        )}
+                      </div>
 
                       {/* Status Badge */}
                       {maintenanceStatus && (

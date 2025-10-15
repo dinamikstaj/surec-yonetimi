@@ -40,47 +40,107 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Socket.io'yu app'e bağla (taskRoutes.js'de kullanılacak)
 app.set('io', io);
 
-// Socket.io connection handling
-const connectedUsers = new Map(); // Kullanıcı ID'lerini socket ID'leriyle eşleştir
-
-// connectedUsers Map'ini app'e bağla
+// Socket.io connection handling - GERÇEK ONLINE DURUMU
+const connectedUsers = new Map(); // userId -> Set of socket IDs (çoklu sekme için)
 app.set('connectedUsers', connectedUsers);
 
+const User = require('./models/User');
+
 io.on('connection', (socket) => {
-  console.log('User connected:', socket.id);
+  console.log('✅ Socket connected:', socket.id);
   
   // Join user to their personal room
-  socket.on('join_user', (userId) => {
-    // Önceki bağlantıyı temizle
-    if (connectedUsers.has(userId)) {
-      const oldSocketId = connectedUsers.get(userId);
-      const oldSocket = io.sockets.sockets.get(oldSocketId);
-      if (oldSocket) {
-        oldSocket.leave(`user_${userId}`);
+  socket.on('join_user', async (userId) => {
+    try {
+      socket.userId = userId;
+      socket.join(`user_${userId}`);
+      
+      // Kullanıcının socket setini güncelle
+      if (!connectedUsers.has(userId)) {
+        connectedUsers.set(userId, new Set());
       }
+      connectedUsers.get(userId).add(socket.id);
+      
+      // Database'de isOnline = true yap
+      await User.findByIdAndUpdate(userId, {
+        isOnline: true,
+        lastSeen: new Date(),
+        lastLogin: new Date()
+      });
+      
+      console.log(`👤 User ${userId} online - Socket: ${socket.id}`);
+      console.log(`📊 Total online users: ${connectedUsers.size}`);
+      
+      // Tüm kullanıcılara bildir
+      io.emit('user_status_changed', {
+        userId: userId,
+        isOnline: true,
+        lastSeen: new Date()
+      });
+      
+      socket.emit('joined_room', { room: `user_${userId}` });
+    } catch (error) {
+      console.error('Join user error:', error);
     }
-    
-    // Yeni bağlantıyı kaydet
-    connectedUsers.set(userId, socket.id);
-    socket.userId = userId;
-    socket.join(`user_${userId}`);
-    
-    console.log(`User ${userId} joined room: user_${userId} with socket ${socket.id}`);
-    console.log('Connected users:', Array.from(connectedUsers.keys()));
-    
-    // Send confirmation
-    socket.emit('joined_room', { room: `user_${userId}` });
   });
   
-  // Handle disconnect
-  socket.on('disconnect', () => {
-    console.log('User disconnected:', socket.id);
+  // Typing events
+  socket.on('typing_start', (data) => {
+    socket.to(`user_${data.recipientId}`).emit('typing_start', data);
+  });
+  
+  socket.on('typing_stop', (data) => {
+    socket.to(`user_${data.recipientId}`).emit('typing_stop', data);
+  });
+  
+  // Handle disconnect - OFFLINE YAP
+  socket.on('disconnect', async () => {
+    console.log('❌ Socket disconnected:', socket.id);
     
-    // Kullanıcıyı bağlı kullanıcılar listesinden çıkar
     if (socket.userId) {
-      connectedUsers.delete(socket.userId);
-      console.log(`User ${socket.userId} removed from connected users`);
-      console.log('Remaining connected users:', Array.from(connectedUsers.keys()));
+      const userId = socket.userId;
+      
+      // Socket setinden çıkar
+      if (connectedUsers.has(userId)) {
+        connectedUsers.get(userId).delete(socket.id);
+        
+        // Eğer kullanıcının hiç socket'i kalmadıysa OFFLINE yap
+        if (connectedUsers.get(userId).size === 0) {
+          connectedUsers.delete(userId);
+          
+          try {
+            // Database'de isOnline = false yap
+            await User.findByIdAndUpdate(userId, {
+              isOnline: false,
+              lastSeen: new Date()
+            });
+            
+            console.log(`👤 User ${userId} OFFLINE`);
+            
+            // Tüm kullanıcılara bildir
+            io.emit('user_status_changed', {
+              userId: userId,
+              isOnline: false,
+              lastSeen: new Date()
+            });
+          } catch (error) {
+            console.error('Disconnect update error:', error);
+          }
+        }
+      }
+      
+      console.log(`📊 Remaining online users: ${connectedUsers.size}`);
+    }
+  });
+  
+  // Heartbeat - Her 30 saniyede bir
+  socket.on('heartbeat', async (userId) => {
+    try {
+      await User.findByIdAndUpdate(userId, {
+        lastSeen: new Date()
+      });
+    } catch (error) {
+      console.error('Heartbeat error:', error);
     }
   });
   
@@ -143,8 +203,19 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/servis-ta
   useNewUrlParser: true,
   useUnifiedTopology: true,
 })
-.then(() => {
+.then(async () => {
   console.log('MongoDB veritabanına başarıyla bağlanıldı.');
+  
+  // Server restart olduğunda tüm kullanıcıları offline yap
+  try {
+    const result = await User.updateMany(
+      { isOnline: true },
+      { isOnline: false, lastSeen: new Date() }
+    );
+    console.log(`🔄 Server restart - ${result.modifiedCount} kullanıcı offline yapıldı`);
+  } catch (error) {
+    console.error('Offline update error:', error);
+  }
 })
 .catch((err) => {
   console.error('MongoDB bağlantı hatası:', err);
@@ -152,7 +223,6 @@ mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/servis-ta
 });
 
 // Models
-const User = require('./models/User');
 const Task = require('./models/Task');
 const Process = require('./models/Process');
 const Customer = require('./models/Customer');
@@ -160,15 +230,6 @@ const Communication = require('./models/Communication');
 const Settings = require('./models/Settings');
 
 console.log('Models yüklendi - User:', !!User, 'Task:', !!Task, 'Process:', !!Process, 'Customer:', !!Customer, 'Communication:', !!Communication, 'Settings:', !!Settings);
-
-// Socket.io bağlantıları
-io.on('connection', (socket) => {
-  console.log('Kullanıcı bağlandı:', socket.id);
-  
-  socket.on('disconnect', () => {
-    console.log('Kullanıcı ayrıldı:', socket.id);
-  });
-});
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => {

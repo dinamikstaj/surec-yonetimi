@@ -35,79 +35,80 @@ router.post('/', async (req, res) => {
     console.log('Yeni müşteri oluşturuluyor:', req.body);
     
     const {
-      name,
-      company,
-      vkn,
+      cariKod,
+      cariUnvan1,
+      cariUnvan2,
+      cariGuid,
       email,
       phone,
+      website,
       address,
       city,
       district,
-      postalCode,
-      country,
-      status,
-      notes,
-      branches,
-      authorizedPerson,
-      hasMaintenanceContract,
-      hasServiceContract
+      vkn,
+      taxOffice,
+      eftAccountNumber,
+      isActive,
+      isLocked,
+      isDeleted,
+      eInvoiceEnabled,
+      eInvoiceStartDate,
+      smsNotification,
+      emailNotification,
+      reconciliationEmail,
+      createDate,
+      lastUpdateDate,
+      createUser,
+      lastUpdateUser
     } = req.body;
 
-    // VKN kontrolü
-    if (!vkn || !/^\d{10}$/.test(vkn)) {
-      return res.status(400).json({ msg: 'VKN 10 haneli olmalı ve sadece rakam içermelidir' });
-    }
-
-    // E-posta kontrolü
-    if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    // E-posta kontrolü (varsa)
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({ msg: 'Geçerli bir e-posta adresi giriniz' });
     }
 
-    // VKN benzersizlik kontrolü
-    const existingCustomer = await Customer.findOne({ vkn });
-    if (existingCustomer) {
-      return res.status(400).json({ msg: 'Bu VKN ile kayıtlı müşteri zaten mevcut' });
-    }
-
-    // E-posta benzersizlik kontrolü
-    const existingEmail = await Customer.findOne({ email });
-    if (existingEmail) {
-      return res.status(400).json({ msg: 'Bu e-posta adresi ile kayıtlı müşteri zaten mevcut' });
-    }
-
-    // Şube validasyonu (opsiyonel)
-    if (branches && branches.length > 0) {
-      // Ana şube kontrolü (eğer şube varsa)
-      const mainBranches = branches.filter(branch => branch.isMain);
-      if (mainBranches.length > 1) {
-        return res.status(400).json({ msg: 'Birden fazla ana şube belirtilemez' });
+    // VKN benzersizlik kontrolü (varsa)
+    if (vkn) {
+      const existingCustomer = await Customer.findOne({ vkn });
+      if (existingCustomer) {
+        return res.status(400).json({ msg: 'Bu VKN ile kayıtlı müşteri zaten mevcut' });
       }
+    }
 
-      // Şube e-posta benzersizlik kontrolü
-      const branchEmails = branches.map(branch => branch.email).filter(email => email);
-      const uniqueBranchEmails = [...new Set(branchEmails)];
-      if (branchEmails.length !== uniqueBranchEmails.length) {
-        return res.status(400).json({ msg: 'Şube e-posta adresleri benzersiz olmalıdır' });
+    // E-posta benzersizlik kontrolü (varsa)
+    if (email) {
+      const existingEmail = await Customer.findOne({ email });
+      if (existingEmail) {
+        return res.status(400).json({ msg: 'Bu e-posta adresi ile kayıtlı müşteri zaten mevcut' });
       }
     }
 
     const customer = new Customer({
-      name,
-      company,
-      vkn,
+      cariKod,
+      cariUnvan1,
+      cariUnvan2,
+      cariGuid,
       email,
       phone,
+      website,
       address,
       city,
       district,
-      postalCode,
-      country,
-      status,
-      notes,
-      branches,
-      authorizedPerson,
-      hasMaintenanceContract: hasMaintenanceContract || false,
-      hasServiceContract: hasServiceContract || false
+      vkn,
+      taxOffice,
+      eftAccountNumber,
+      isActive: isActive !== undefined ? isActive : true,
+      isLocked: isLocked !== undefined ? isLocked : false,
+      isDeleted: isDeleted !== undefined ? isDeleted : false,
+      eInvoiceEnabled: eInvoiceEnabled !== undefined ? eInvoiceEnabled : false,
+      eInvoiceStartDate,
+      smsNotification: smsNotification !== undefined ? smsNotification : false,
+      emailNotification: emailNotification !== undefined ? emailNotification : false,
+      reconciliationEmail,
+      createDate,
+      lastUpdateDate,
+      createUser,
+      lastUpdateUser
     });
 
     await customer.save();
@@ -125,28 +126,32 @@ router.put('/:id', async (req, res) => {
     console.log('Müşteri güncelleniyor:', req.params.id);
     
     const {
-      name,
-      company,
-      vkn,
+      cariKod,
+      cariUnvan1,
+      cariUnvan2,
+      cariGuid,
       email,
       phone,
+      website,
       address,
       city,
       district,
-      postalCode,
-      country,
-      status,
-      notes,
-      branches,
-      authorizedPerson,
-      hasMaintenanceContract,
-      hasServiceContract
+      vkn,
+      taxOffice,
+      eftAccountNumber,
+      isActive,
+      isLocked,
+      isDeleted,
+      eInvoiceEnabled,
+      eInvoiceStartDate,
+      smsNotification,
+      emailNotification,
+      reconciliationEmail,
+      createDate,
+      lastUpdateDate,
+      createUser,
+      lastUpdateUser
     } = req.body;
-
-    // VKN kontrolü (varsa)
-    if (vkn && !/^\d{10}$/.test(vkn)) {
-      return res.status(400).json({ msg: 'VKN 10 haneli olmalı ve sadece rakam içermelidir' });
-    }
 
     // E-posta kontrolü (varsa)
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
@@ -169,33 +174,33 @@ router.put('/:id', async (req, res) => {
       }
     }
 
-    // Şube validasyonu (opsiyonel)
-    if (branches && branches.length > 0) {
-      // Ana şube kontrolü (eğer şube varsa)
-      const mainBranches = branches.filter(branch => branch.isMain);
-      if (mainBranches.length > 1) {
-        return res.status(400).json({ msg: 'Birden fazla ana şube belirtilemez' });
-      }
-    }
-
     // Sadece gönderilen alanları güncelle
     const updateData = { updatedAt: new Date() };
-    if (name !== undefined) updateData.name = name;
-    if (company !== undefined) updateData.company = company;
-    if (vkn !== undefined) updateData.vkn = vkn;
+    if (cariKod !== undefined) updateData.cariKod = cariKod;
+    if (cariUnvan1 !== undefined) updateData.cariUnvan1 = cariUnvan1;
+    if (cariUnvan2 !== undefined) updateData.cariUnvan2 = cariUnvan2;
+    if (cariGuid !== undefined) updateData.cariGuid = cariGuid;
     if (email !== undefined) updateData.email = email;
     if (phone !== undefined) updateData.phone = phone;
+    if (website !== undefined) updateData.website = website;
     if (address !== undefined) updateData.address = address;
     if (city !== undefined) updateData.city = city;
     if (district !== undefined) updateData.district = district;
-    if (postalCode !== undefined) updateData.postalCode = postalCode;
-    if (country !== undefined) updateData.country = country;
-    if (status !== undefined) updateData.status = status;
-    if (notes !== undefined) updateData.notes = notes;
-    if (branches !== undefined) updateData.branches = branches;
-    if (authorizedPerson !== undefined) updateData.authorizedPerson = authorizedPerson;
-    if (hasMaintenanceContract !== undefined) updateData.hasMaintenanceContract = hasMaintenanceContract;
-    if (hasServiceContract !== undefined) updateData.hasServiceContract = hasServiceContract;
+    if (vkn !== undefined) updateData.vkn = vkn;
+    if (taxOffice !== undefined) updateData.taxOffice = taxOffice;
+    if (eftAccountNumber !== undefined) updateData.eftAccountNumber = eftAccountNumber;
+    if (isActive !== undefined) updateData.isActive = isActive;
+    if (isLocked !== undefined) updateData.isLocked = isLocked;
+    if (isDeleted !== undefined) updateData.isDeleted = isDeleted;
+    if (eInvoiceEnabled !== undefined) updateData.eInvoiceEnabled = eInvoiceEnabled;
+    if (eInvoiceStartDate !== undefined) updateData.eInvoiceStartDate = eInvoiceStartDate;
+    if (smsNotification !== undefined) updateData.smsNotification = smsNotification;
+    if (emailNotification !== undefined) updateData.emailNotification = emailNotification;
+    if (reconciliationEmail !== undefined) updateData.reconciliationEmail = reconciliationEmail;
+    if (createDate !== undefined) updateData.createDate = createDate;
+    if (lastUpdateDate !== undefined) updateData.lastUpdateDate = lastUpdateDate;
+    if (createUser !== undefined) updateData.createUser = createUser;
+    if (lastUpdateUser !== undefined) updateData.lastUpdateUser = lastUpdateUser;
 
     const customer = await Customer.findByIdAndUpdate(
       req.params.id,
@@ -239,10 +244,12 @@ router.get('/search/:query', async (req, res) => {
     const query = req.params.query;
     const customers = await Customer.find({
       $or: [
-        { name: { $regex: query, $options: 'i' } },
-        { company: { $regex: query, $options: 'i' } },
+        { cariUnvan1: { $regex: query, $options: 'i' } },
+        { cariUnvan2: { $regex: query, $options: 'i' } },
+        { cariKod: { $regex: query, $options: 'i' } },
         { vkn: { $regex: query, $options: 'i' } },
-        { email: { $regex: query, $options: 'i' } }
+        { city: { $regex: query, $options: 'i' } },
+        { district: { $regex: query, $options: 'i' } }
       ]
     }).sort({ createdAt: -1 });
 

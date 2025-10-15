@@ -6,7 +6,9 @@ const router = express.Router();
 const Chat = require('../models/Chat');
 const User = require('../models/User');
 
-// Multer konfigürasyonu - dosya yükleme için
+// ========================
+// MULTER CONFIGURATION
+// ========================
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     const uploadDir = 'uploads/chat';
@@ -23,11 +25,8 @@ const storage = multer.diskStorage({
 
 const upload = multer({ 
   storage: storage,
-  limits: {
-    fileSize: 10 * 1024 * 1024 // 10MB limit
-  },
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
   fileFilter: (req, file, cb) => {
-    // Sadece resim ve belirli dosya türlerine izin ver
     const allowedTypes = /jpeg|jpg|png|gif|webp|pdf|doc|docx|txt|zip|rar/;
     const extname = allowedTypes.test(path.extname(file.originalname).toLowerCase());
     const mimetype = allowedTypes.test(file.mimetype);
@@ -40,18 +39,15 @@ const upload = multer({
   }
 });
 
-// Dosya yükleme endpoint'i
 router.post('/upload', upload.single('file'), (req, res) => {
   try {
     if (!req.file) {
       return res.status(400).json({ msg: 'Dosya seçilmedi' });
     }
-
-    const fileUrl = `/uploads/chat/${req.file.filename}`;
     
     res.json({
       success: true,
-      fileUrl: fileUrl,
+      fileUrl: `/uploads/chat/${req.file.filename}`,
       fileName: req.file.originalname,
       fileSize: req.file.size,
       fileType: req.file.mimetype
@@ -62,7 +58,9 @@ router.post('/upload', upload.single('file'), (req, res) => {
   }
 });
 
-// Update user status message
+// ========================
+// USER STATUS
+// ========================
 router.put('/user/:userId/status', async (req, res) => {
   try {
     const { userId } = req.params;
@@ -92,23 +90,131 @@ router.put('/user/:userId/status', async (req, res) => {
   }
 });
 
-// Get all chats for a user
+// Update notification sound
+router.put('/user/:userId/notification-sound', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { notificationSound } = req.body;
+    
+    const validSounds = ['hamzaaa', 'ibraaaamabi', 'lokmalaaaa', 'muharrreeeeem'];
+    if (!validSounds.includes(notificationSound)) {
+      return res.status(400).json({ msg: 'Geçersiz bildirim sesi' });
+    }
+    
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { notificationSound },
+      { new: true }
+    );
+    
+    if (!user) {
+      return res.status(404).json({ msg: 'Kullanıcı bulunamadı' });
+    }
+    
+    res.json({
+      success: true,
+      notificationSound: user.notificationSound
+    });
+  } catch (error) {
+    console.error('Notification sound update error:', error);
+    res.status(500).json({ msg: 'Bildirim sesi güncellenemedi', error: error.message });
+  }
+});
+
+// ========================
+// ONLINE STATUS - DEPRECATED (Socket handles this now)
+// ========================
+// Online status artık socket connect/disconnect ile otomatik yönetiliyor
+// Bu endpoint sadece backward compatibility için tutuluyor
+router.put('/user/:userId/online', async (req, res) => {
+  try {
+    res.json({
+      success: true,
+      message: 'Online status is now handled by socket connection'
+    });
+  } catch (error) {
+    console.error('Update online status error:', error);
+    res.status(500).json({ msg: 'Durum güncellenemedi', error: error.message });
+  }
+});
+
+// ========================
+// GET ALL USERS - GERÇEK ONLINE DURUMU
+// ========================
+router.get('/all-users', async (req, res) => {
+  try {
+    const { excludeUserId } = req.query;
+    const query = excludeUserId ? { _id: { $ne: excludeUserId } } : {};
+    
+    // Database'den kullanıcıları al (isOnline zaten socket tarafından güncelleniyor)
+    const users = await User.find(query)
+      .select('name email avatar role lastLogin lastSeen isOnline statusMessage notificationSound')
+      .sort({ isOnline: -1, lastSeen: -1 }); // Online olanlar önce, sonra lastSeen'e göre
+    
+    // Gerçek online durumu - Database'deki isOnline değerini kullan
+    const usersWithRealStatus = users.map(user => ({
+      ...user.toObject(),
+      // isOnline database'den geliyor, değiştirme!
+    }));
+    
+    res.json(usersWithRealStatus);
+  } catch (error) {
+    console.error('All users fetch error:', error);
+    res.status(500).json({ msg: 'Kullanıcılar getirilemedi', error: error.message });
+  }
+});
+
+// ========================
+// GET USER CHATS
+// ========================
 router.get('/user/:userId', async (req, res) => {
   try {
     const userId = req.params.userId;
     
     const chats = await Chat.find({ participants: userId })
-      .populate('participants', 'name email avatar role')
+      .populate('participants', 'name email avatar role isOnline lastSeen')
+      .populate('messages.sender', 'name email avatar')
       .sort({ lastMessageTime: -1 });
     
-    res.json(chats);
+    // Filter deleted messages
+    const chatsWithFilteredMessages = chats.map(chat => {
+      const chatObj = chat.toObject();
+      chatObj.messages = chatObj.messages.filter(msg => !msg.isDeleted);
+      return chatObj;
+    });
+    
+    res.json(chatsWithFilteredMessages);
   } catch (error) {
     console.error('Chats fetch error:', error);
     res.status(500).json({ msg: 'Sohbetler getirilemedi', error: error.message });
   }
 });
 
-// Get or create chat between two users
+// ========================
+// GET UNREAD COUNT
+// ========================
+router.get('/user/:userId/unread-count', async (req, res) => {
+  try {
+    const userId = req.params.userId;
+    
+    const chats = await Chat.find({ participants: userId });
+    
+    let totalUnread = 0;
+    chats.forEach(chat => {
+      const count = chat.unreadCount.get(userId.toString()) || 0;
+      totalUnread += count;
+    });
+    
+    res.json({ unreadCount: totalUnread });
+  } catch (error) {
+    console.error('Unread count error:', error);
+    res.status(500).json({ msg: 'Okunmamış sayısı alınamadı', error: error.message });
+  }
+});
+
+// ========================
+// GET OR CREATE CHAT
+// ========================
 router.post('/get-or-create', async (req, res) => {
   try {
     const { userId1, userId2 } = req.body;
@@ -117,10 +223,12 @@ router.post('/get-or-create', async (req, res) => {
       return res.status(400).json({ msg: 'İki kullanıcı ID gerekli' });
     }
     
-    // Check if chat already exists
+    // Check if chat exists
     let chat = await Chat.findOne({
       participants: { $all: [userId1, userId2] }
-    }).populate('participants', 'name email avatar role');
+    })
+    .populate('participants', 'name email avatar role isOnline lastSeen')
+    .populate('messages.sender', 'name email avatar');
     
     // Create new chat if doesn't exist
     if (!chat) {
@@ -130,11 +238,13 @@ router.post('/get-or-create', async (req, res) => {
         unreadCount: new Map([[userId1, 0], [userId2, 0]])
       });
       await chat.save();
-      await chat.populate('participants', 'name email avatar role');
+      await chat.populate('participants', 'name email avatar role isOnline lastSeen');
     }
     
-    // Filter out deleted messages
+    // Filter deleted messages
+    if (chat.messages) {
     chat.messages = chat.messages.filter(msg => !msg.isDeleted);
+    }
     
     res.json(chat);
   } catch (error) {
@@ -143,7 +253,9 @@ router.post('/get-or-create', async (req, res) => {
   }
 });
 
-// Send message
+// ========================
+// SEND MESSAGE - YENİ VE TEMİZ
+// ========================
 router.post('/:chatId/message', async (req, res) => {
   try {
     const { chatId } = req.params;
@@ -158,7 +270,7 @@ router.post('/:chatId/message', async (req, res) => {
       return res.status(404).json({ msg: 'Sohbet bulunamadı' });
     }
     
-    // Add message
+    // Create new message
     const newMessage = {
       sender: senderId,
       content,
@@ -178,11 +290,12 @@ router.post('/:chatId/message', async (req, res) => {
       createdAt: new Date()
     };
     
+    // Add to chat
     chat.messages.push(newMessage);
     chat.lastMessage = content;
     chat.lastMessageTime = new Date();
     
-    // Update unread count for other participants
+    // Update unread count
     chat.participants.forEach(participantId => {
       if (participantId.toString() !== senderId.toString()) {
         const currentCount = chat.unreadCount.get(participantId.toString()) || 0;
@@ -191,49 +304,63 @@ router.post('/:chatId/message', async (req, res) => {
     });
     
     await chat.save();
-    await chat.populate('participants', 'name email avatar role');
+    
+    // Get the saved message with its _id
+    const savedMessage = chat.messages[chat.messages.length - 1];
+    
+    // Populate sender info
+    await chat.populate('participants', 'name email avatar role isOnline lastSeen');
     await chat.populate('messages.sender', 'name email avatar');
     
-    // Filter out deleted messages
-    chat.messages = chat.messages.filter(msg => !msg.isDeleted);
+    const populatedMessage = chat.messages[chat.messages.length - 1];
     
-    // Emit socket event
+    // ✅ SADECE SOCKET İLE MESAJ GÖNDER - RESPONSE'TA GÖNDERME
     const io = req.app.get('io');
     if (io) {
-      const populatedMessage = {
-        ...newMessage,
-        sender: chat.participants.find(p => p._id.toString() === senderId.toString())
-      };
-      
-      console.log('Emitting message to participants:', chat.participants.map(p => p._id.toString()));
-      console.log('Chat ID:', chat._id);
-      console.log('Message content:', populatedMessage.content);
-      console.log('Sender ID:', senderId);
-      
       const messageData = {
-        chatId: chat._id,
-        message: populatedMessage
+        chatId: chat._id.toString(),
+        message: {
+          _id: populatedMessage._id,
+          sender: populatedMessage.sender,
+          content: populatedMessage.content,
+          type: populatedMessage.type,
+          fileName: populatedMessage.fileName,
+          fileSize: populatedMessage.fileSize,
+          fileType: populatedMessage.fileType,
+          fileUrl: populatedMessage.fileUrl,
+          status: populatedMessage.status,
+          statusDetails: populatedMessage.statusDetails,
+          read: populatedMessage.read,
+          createdAt: populatedMessage.createdAt
+        }
       };
       
-      // Send to ALL participants (including sender) - but only via room, not direct socket
+      // Send ONLY to other participants (not sender - they have optimistic update)
       chat.participants.forEach(participantId => {
+        if (participantId._id.toString() !== senderId.toString()) {
         const roomName = `user_${participantId._id}`;
-        console.log(`Sending message to room: ${roomName}`);
-        console.log('Message data being sent:', JSON.stringify(messageData, null, 2));
-        
-        // Emit to the room only - remove direct socket emit to prevent duplicates
+          console.log(`📤 Sending message to: ${roomName}`);
         io.to(roomName).emit('new_message', messageData);
+        }
       });
     }
     
-    res.json(chat);
+    // ✅ SADECE SUCCESS RESPONSE DÖN - MESAJ DÖNDÜRME
+    res.json({ 
+      success: true,
+      messageId: savedMessage._id,
+      chatId: chat._id
+    });
+    
   } catch (error) {
     console.error('Send message error:', error);
     res.status(500).json({ msg: 'Mesaj gönderilemedi', error: error.message });
   }
 });
 
-// Mark messages as read
+// ========================
+// MARK AS READ
+// ========================
 router.put('/:chatId/read/:userId', async (req, res) => {
   try {
     const { chatId, userId } = req.params;
@@ -243,17 +370,14 @@ router.put('/:chatId/read/:userId', async (req, res) => {
       return res.status(404).json({ msg: 'Sohbet bulunamadı' });
     }
     
-    // Mark all messages as read for this user
+    // Mark messages as read
     chat.messages.forEach(message => {
-      if (message.sender.toString() !== userId.toString()) {
+      if (message.sender.toString() !== userId.toString() && !message.isDeleted) {
         message.read = true;
-        
-        // Update message status to read
         if (message.status !== 'read') {
           message.status = 'read';
           message.statusDetails.readAt = new Date();
           
-          // Add user to readBy array if not already there
           const alreadyRead = message.statusDetails.readBy.some(
             readEntry => readEntry.user.toString() === userId.toString()
           );
@@ -270,176 +394,80 @@ router.put('/:chatId/read/:userId', async (req, res) => {
     
     // Reset unread count
     chat.unreadCount.set(userId.toString(), 0);
-    
     await chat.save();
     
-    // Emit read status update to other participants
+    // Emit read status
     const io = req.app.get('io');
     if (io) {
-      const readData = {
-        chatId: chat._id,
-        userId: userId,
-        readAt: new Date()
-      };
-      
       chat.participants.forEach(participantId => {
         if (participantId.toString() !== userId.toString()) {
           const roomName = `user_${participantId}`;
-          io.to(roomName).emit('messages_read', readData);
+          io.to(roomName).emit('messages_read', {
+            chatId: chat._id,
+            userId: userId,
+            readAt: new Date()
+          });
         }
       });
     }
     
-    res.json({ msg: 'Mesajlar okundu olarak işaretlendi' });
+    res.json({ success: true });
   } catch (error) {
     console.error('Mark read error:', error);
     res.status(500).json({ msg: 'Güncelleme başarısız', error: error.message });
   }
 });
 
-// Delete a message
+// ========================
+// DELETE MESSAGE
+// ========================
 router.delete('/:chatId/message/:messageId', async (req, res) => {
   try {
     const { chatId, messageId } = req.params;
     const { userId } = req.body;
 
-    console.log('Delete message request:', { chatId, messageId, userId });
-
     const chat = await Chat.findById(chatId);
     if (!chat) {
-      console.log('Chat not found:', chatId);
       return res.status(404).json({ msg: 'Sohbet bulunamadı' });
     }
 
-    console.log('Chat found, messages count:', chat.messages.length);
-    console.log('Looking for message ID:', messageId);
-
-    // Find the message - try both string and ObjectId comparison
-    const messageIndex = chat.messages.findIndex(msg => {
-      const msgId = msg._id ? msg._id.toString() : '';
-      console.log('Comparing message ID:', msgId, 'with:', messageId);
-      return msgId === messageId;
-    });
-
-    console.log('Message index found:', messageIndex);
+    const messageIndex = chat.messages.findIndex(msg => 
+      msg._id && msg._id.toString() === messageId
+    );
 
     if (messageIndex === -1) {
-      console.log('Message not found in chat');
       return res.status(404).json({ msg: 'Mesaj bulunamadı' });
     }
 
     const message = chat.messages[messageIndex];
-    console.log('Message found:', message);
     
-    // Check if user is the sender of the message
-    const messageSenderId = message.sender ? message.sender.toString() : '';
-    const requestUserId = userId ? userId.toString() : '';
-    
-    console.log('Message sender ID:', messageSenderId);
-    console.log('Request user ID:', requestUserId);
-    
-    if (messageSenderId !== requestUserId) {
-      console.log('User not authorized to delete this message');
+    if (message.sender.toString() !== userId.toString()) {
       return res.status(403).json({ msg: 'Bu mesajı silme yetkiniz yok' });
     }
 
-    // Mark message as deleted instead of removing it
+    // Mark as deleted
     chat.messages[messageIndex].isDeleted = true;
     chat.messages[messageIndex].deletedAt = new Date();
     chat.messages[messageIndex].deletedBy = userId;
     await chat.save();
 
-    console.log('Message marked as deleted successfully');
-
-    // Emit socket event to notify all participants
+    // Emit delete event
     const io = req.app.get('io');
     if (io) {
-      const messageData = {
-        chatId: chat._id,
-        messageId: messageId,
-        action: 'delete'
-      };
-      
-      console.log('Emitting message_deleted event:', messageData);
-      
       chat.participants.forEach(participantId => {
         const roomName = `user_${participantId._id}`;
-        console.log(`Sending delete notification to room: ${roomName}`);
-        io.to(roomName).emit('message_deleted', messageData);
+        io.to(roomName).emit('message_deleted', {
+          chatId: chat._id,
+          messageId: messageId
+        });
       });
     }
 
-    res.json({ msg: 'Mesaj silindi', messageId });
+    res.json({ success: true, messageId });
   } catch (error) {
     console.error('Delete message error:', error);
     res.status(500).json({ msg: 'Mesaj silinemedi', error: error.message });
   }
 });
 
-// Update user online status
-router.put('/user/:userId/online', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { isOnline } = req.body;
-    
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { 
-        isOnline: isOnline,
-        lastSeen: new Date(),
-        lastLogin: new Date()
-      },
-      { new: true }
-    );
-    
-    if (!user) {
-      return res.status(404).json({ msg: 'Kullanıcı bulunamadı' });
-    }
-    
-    // Emit online status change to all users
-    const io = req.app.get('io');
-    if (io) {
-      io.emit('user_status_changed', {
-        userId: user._id,
-        isOnline: user.isOnline,
-        lastSeen: user.lastSeen
-      });
-    }
-    
-    res.json({
-      success: true,
-      isOnline: user.isOnline,
-      lastSeen: user.lastSeen
-    });
-  } catch (error) {
-    console.error('Update online status error:', error);
-    res.status(500).json({ msg: 'Durum güncellenemedi', error: error.message });
-  }
-});
-
-// Get all users (Discord style - all users shown, online status indicated)
-router.get('/all-users', async (req, res) => {
-  try {
-    const { excludeUserId } = req.query;
-    
-    const query = excludeUserId ? { _id: { $ne: excludeUserId } } : {};
-    
-    const users = await User.find(query)
-      .select('name email avatar role lastLogin lastSeen isOnline statusMessage')
-      .sort({ lastLogin: -1 });
-    
-    // Add online status based on lastLogin (within last 5 minutes = online)
-    const usersWithStatus = users.map(user => ({
-      ...user.toObject(),
-      isOnline: user.isOnline || (user.lastLogin && (new Date() - new Date(user.lastLogin)) < 5 * 60 * 1000)
-    }));
-    
-    res.json(usersWithStatus);
-  } catch (error) {
-    console.error('All users fetch error:', error);
-    res.status(500).json({ msg: 'Kullanıcılar getirilemedi', error: error.message });
-  }
-});
-
 module.exports = router;
-

@@ -43,6 +43,11 @@ const UserSchema = new mongoose.Schema({
     type: String,
     default: 'Selam!',
   },
+  notificationSound: {
+    type: String,
+    enum: ['hamzaaa', 'ibraaaamabi', 'lokmalaaaa', 'muharrreeeeem', null],
+    default: null,
+  },
   lastLogin: {
     type: Date,
     default: Date.now,

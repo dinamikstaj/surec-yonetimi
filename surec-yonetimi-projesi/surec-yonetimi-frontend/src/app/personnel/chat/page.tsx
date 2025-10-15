@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -15,22 +15,28 @@ import {
   MessageSquare, 
   Send, 
   Search, 
-  Users,
-  Circle,
-  ArrowLeft,
-  Trash2
+  Paperclip,
+  X,
+  Check,
+  CheckCheck,
+  Loader2,
+  Clock,
+  Circle
 } from 'lucide-react';
 
+// ========================
+// INTERFACES
+// ========================
 interface User {
   _id: string;
   name: string;
   email: string;
   avatar?: string;
   role: string;
-  lastLogin?: string;
   lastSeen?: string;
   isOnline?: boolean;
   statusMessage?: string;
+  notificationSound?: string;
 }
 
 interface Message {
@@ -43,20 +49,9 @@ interface Message {
   fileType?: string;
   fileUrl?: string;
   status?: 'sending' | 'sent' | 'delivered' | 'read';
-  statusDetails?: {
-    sentAt?: string;
-    deliveredAt?: string;
-    readAt?: string;
-    readBy?: Array<{
-      user: string;
-      readAt: string;
-    }>;
-  };
-  replyTo?: string;
-  forwarded?: boolean;
-  forwardedFrom?: string;
   read: boolean;
   createdAt: string;
+  isDeleted?: boolean;
 }
 
 interface Chat {
@@ -65,7 +60,7 @@ interface Chat {
   messages: Message[];
   lastMessage?: string;
   lastMessageTime: string;
-  unreadCount: Map<string, number>;
+  unreadCount?: { [key: string]: number };
 }
 
 export default function PersonnelChatPage() {
@@ -73,151 +68,236 @@ export default function PersonnelChatPage() {
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [currentChat, setCurrentChat] = useState<Chat | null>(null);
   const [message, setMessage] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
   const [sending, setSending] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
-  const [typingUser, setTypingUser] = useState<string | null>(null);
-  const [isUserListCollapsed, setIsUserListCollapsed] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [filePreview, setFilePreview] = useState<string | null>(null);
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
-  const [showImageModal, setShowImageModal] = useState(false);
-  const [showStatusModal, setShowStatusModal] = useState(false);
-  const [statusMessage, setStatusMessage] = useState('');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [userChats, setUserChats] = useState<Chat[]>([]);
+  
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const socketRef = useRef<any>(null);
+  const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') : null;
+  const [currentUserSound, setCurrentUserSound] = useState<string>('hamzaaa');
 
-  // Socket bağlantısı için ayrı useEffect
+  // Bildirim sesleri - Gerçek ses dosyaları
+  const playNotificationSound = (soundType?: string) => {
+    try {
+      if (!soundType) return;
+      const soundFile = `/sounds/${soundType}.mp3`;
+      console.log('🔊 Playing notification sound:', soundFile);
+      
+      const audio = new Audio(soundFile);
+      audio.volume = 0.7; // Ses seviyesi artırıldı
+      audio.preload = 'auto'; // Ses dosyasını önceden yükle
+      
+      // Ses yükleme durumunu kontrol et
+      audio.addEventListener('loadstart', () => console.log('📥 Audio loading started'));
+      audio.addEventListener('canplay', () => console.log('✅ Audio can play'));
+      audio.addEventListener('error', (e) => console.error('❌ Audio error:', e));
+      audio.addEventListener('ended', () => console.log('🏁 Audio ended'));
+      
+      // Audio permission için user interaction simulation
+      const playWithPermission = () => {
+        audio.play().then(() => {
+          console.log('🎵 Audio playing successfully');
+        }).catch(error => {
+          console.error('❌ Audio play failed:', error);
+        });
+      };
+      
+      // İlk kez permission al
+      if (!(window as any).audioPermissionGranted) {
+        const silentAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=');
+        silentAudio.volume = 0;
+        silentAudio.play().then(() => {
+          (window as any).audioPermissionGranted = true;
+          playWithPermission();
+        }).catch(() => {
+          const clickEvent = new MouseEvent('click', { bubbles: true });
+          document.dispatchEvent(clickEvent);
+          (window as any).audioPermissionGranted = true;
+          playWithPermission();
+        });
+      } else {
+        playWithPermission();
+      }
+    } catch (error) {
+      console.error('❌ Notification sound error:', error);
+    }
+  };
+
+  // Test fonksiyonu - manuel ses çalma
+  const testNotificationSound = () => {
+    console.log('🧪 Testing notification sound...');
+    playNotificationSound(currentUserSound);
+  };
+
+  // ========================
+  // AUDIO PERMISSION
+  // ========================
+  useEffect(() => {
+    // Sayfa yüklendiğinde ses izni al
+    const requestAudioPermission = async () => {
+      try {
+        const audio = new Audio('/sounds/hamzaaa.mp3');
+        audio.volume = 0;
+        await audio.play();
+        audio.pause();
+        console.log('✅ Audio permission granted');
+      } catch (error) {
+        console.log('⚠️ Audio permission needed - user interaction required');
+      }
+    };
+    
+    requestAudioPermission();
+  }, []);
+
+  // Kullanıcının kendi bildirim sesi
+  useEffect(() => {
+    const fetchMe = async () => {
+      try {
+    if (!currentUserId) return;
+        const res = await fetch(`${getApiBaseUrl()}/users/${currentUserId}`);
+        if (res.ok) {
+          const me = await res.json();
+          if (me?.notificationSound) setCurrentUserSound(me.notificationSound);
+        }
+      } catch {}
+    };
+    fetchMe();
+  }, [currentUserId]);
+
+  // ========================
+  // SOCKET CONNECTION
+  // ========================
   useEffect(() => {
     if (!currentUserId) return;
 
-    console.log('Setting up socket connection for user:', currentUserId);
-    
-    // Socket.io connection - Auto detect backend URL
     const backendUrl = typeof window !== 'undefined' 
       ? `${window.location.protocol}//${window.location.hostname}:5000`
       : 'http://localhost:5000';
     
-    console.log('Connecting to backend:', backendUrl);
-    
-    // Önceki bağlantıyı temizle
     if (socketRef.current) {
-      console.log('Disconnecting previous socket connection');
       socketRef.current.disconnect();
     }
     
     socketRef.current = io(backendUrl, {
       transports: ['websocket', 'polling'],
-      autoConnect: true,
-      forceNew: true, // Her seferinde yeni bağlantı oluştur
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000
     });
     
-    // Connection events
     socketRef.current.on('connect', () => {
-      console.log('Socket connected successfully:', socketRef.current.id);
-      // Join user room after connection
+      console.log('✅ Socket connected');
       socketRef.current.emit('join_user', currentUserId);
     });
 
-    socketRef.current.on('disconnect', () => {
-      console.log('Socket disconnected');
+    // Dürt bildirimi - hedef kullanıcı ise ses çal ve toast göster
+    socketRef.current.on('nudge_notification', (data: any) => {
+      try {
+        if (!data || !data.userId) return;
+        if (data.userId !== currentUserId) return; // Yalnızca hedef kullanıcıda çalışsın
+
+        console.log('⚡ Nudge received:', data);
+
+        // Backend'den gelen hedef kullanıcının sesini çal
+        const soundToPlay = data.targetUserSound || currentUserSound || 'hamzaaa';
+        playNotificationSound(soundToPlay);
+
+        toast.warning(
+          <div className="flex items-start gap-3">
+            <Avatar className="h-10 w-10">
+              <AvatarFallback>!</AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-sm">Dürtüldün!</p>
+              <p className="text-sm text-muted-foreground truncate">{data.message || 'Yönetici sizi dürtüyor!'}</p>
+            </div>
+          </div>,
+          {
+            duration: 4000,
+            position: 'bottom-right',
+          }
+        );
+      } catch (error) {
+        console.error('Nudge handle error:', error);
+      }
     });
 
-    socketRef.current.on('connect_error', (error: Error) => {
-      console.error('Socket connection error:', error);
-    });
-
-    socketRef.current.on('joined_room', (data: any) => {
-      console.log('Successfully joined room:', data.room);
-    });
-    
-     // Listen for new messages
      socketRef.current.on('new_message', (data: any) => {
-       console.log('New message received:', data);
-       console.log('Received chat ID:', data.chatId);
-       
-       // Güvenli kontrol - data ve data.message'ın varlığını kontrol et
-       if (!data || !data.message || !data.chatId) {
-         console.log('Invalid message data received');
-         return;
-       }
-       
-       console.log('Processing new message for chat:', data.chatId);
-       
-       // Mesajı state'e ekle - currentChat kontrolü setCurrentChat içinde yapılacak
+      if (!data?.message?._id || !data?.chatId) return;
+      
        setCurrentChat(prev => {
-         console.log('Current chat in state:', prev?._id);
-         console.log('Message chat ID:', data.chatId);
-         
-         // Eğer şu anki chat yoksa veya farklı chat'e ait mesajsa işleme
-         if (!prev || prev._id !== data.chatId) {
-           console.log('Message not for current chat, ignoring');
-           return prev;
-         }
-         
-         // Duplicate mesaj kontrolü - sadece gerçek ID kontrolü
-         const messageExists = prev.messages.some(msg => {
-           if (!msg || !msg._id) return false;
-           return msg._id === data.message._id;
-         });
-         
-         if (messageExists) {
-           console.log('Message already exists, skipping');
-           return prev;
-         }
-         
-         // Mesajları güvenli şekilde ekle
-         if (!data.message || !data.message.sender || !data.message.content) {
-           console.warn('Invalid message data:', data.message);
-           return prev;
-         }
-         
-         console.log('Adding message to current chat');
-         const newMessages = [...prev.messages, data.message];
-         console.log('Updated messages count:', newMessages.length);
+        if (!prev || prev._id !== data.chatId) return prev;
+        const exists = prev.messages.some(msg => msg._id === data.message._id);
+        if (exists) return prev;
+        
+        // 🔔 YENİ MESAJ BİLDİRİMİ
+        const senderName = typeof data.message.sender === 'string' 
+          ? 'Bilinmeyen' 
+          : data.message.sender.name || 'Bilinmeyen';
+        
+        // Chat mesajlarında ses çalma - sadece dürt bildiriminde çalacak
+        
+        // Toast bildirim göster
+        const messagePreview = data.message.content.length > 50 
+          ? data.message.content.substring(0, 50) + '...' 
+          : data.message.content;
+        
+        toast.success(
+          <div className="flex items-start gap-3">
+            <Avatar className="h-10 w-10">
+              {data.message.sender?.avatar && <AvatarImage src={`${getApiUrl()}${data.message.sender.avatar}`} />}
+              <AvatarFallback>{senderName.charAt(0).toUpperCase()}</AvatarFallback>
+            </Avatar>
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-sm">{senderName}</p>
+              <p className="text-sm text-muted-foreground truncate">{messagePreview}</p>
+            </div>
+          </div>,
+          {
+            duration: 4000,
+            position: 'bottom-right',
+          }
+        );
+        
+        // Unread count'u güncelle
+        fetchChats();
          
          return {
            ...prev,
-           messages: newMessages
+          messages: [...prev.messages, data.message]
          };
        });
      });
 
-     // Listen for message deletion
      socketRef.current.on('message_deleted', (data: any) => {
-       console.log('Message deleted:', data);
-       
-       if (data.chatId === currentChat?._id) {
          setCurrentChat(prev => {
-           if (!prev) return prev;
+        if (!prev || prev._id !== data.chatId) return prev;
            return {
              ...prev,
              messages: prev.messages.filter(msg => msg._id !== data.messageId)
            };
          });
-       }
      });
 
-     // Listen for typing events
      socketRef.current.on('typing_start', (data: any) => {
        if (data.chatId === currentChat?._id && data.userId !== currentUserId) {
          setIsTyping(true);
-         setTypingUser(data.userName || 'Birisi');
        }
      });
 
      socketRef.current.on('typing_stop', (data: any) => {
-       if (data.chatId === currentChat?._id && data.userId !== currentUserId) {
+      if (data.chatId === currentChat?._id) {
          setIsTyping(false);
-         setTypingUser(null);
        }
      });
 
-     // Listen for user status changes
      socketRef.current.on('user_status_changed', (data: any) => {
        console.log('User status changed:', data);
        setUsers(prev => prev.map(user => 
@@ -225,27 +305,22 @@ export default function PersonnelChatPage() {
            ? { ...user, isOnline: data.isOnline, lastSeen: data.lastSeen }
            : user
        ));
+      
+      if (selectedUser?._id === data.userId) {
+        setSelectedUser(prev => prev ? { ...prev, isOnline: data.isOnline, lastSeen: data.lastSeen } : null);
+      }
      });
 
-     // Listen for messages read status
      socketRef.current.on('messages_read', (data: any) => {
-       console.log('Messages read:', data);
        if (data.chatId === currentChat?._id) {
-         // Update message status to read
          setCurrentChat(prev => {
            if (!prev) return prev;
            return {
              ...prev,
              messages: prev.messages.map(msg => {
-               if (typeof msg.sender === 'string' ? msg.sender !== currentUserId : msg.sender._id !== currentUserId) {
-                 return {
-                   ...msg,
-                   status: 'read',
-                   statusDetails: {
-                     ...msg.statusDetails,
-                     readAt: data.readAt
-                   }
-                 };
+              const senderId = typeof msg.sender === 'string' ? msg.sender : msg.sender._id;
+              if (senderId === currentUserId) {
+                return { ...msg, status: 'read' };
                }
                return msg;
              })
@@ -253,90 +328,115 @@ export default function PersonnelChatPage() {
          });
        }
      });
-
-    // Connection events daha önce tanımlandı, tekrar tanımlamaya gerek yok
     
     return () => {
-      console.log('Cleaning up socket connection');
       if (socketRef.current) {
         socketRef.current.disconnect();
       }
     };
-  }, [currentUserId]); // Sadece currentUserId değiştiğinde yeniden bağlan
+  }, [currentUserId, currentChat?._id]);
 
-  // Kullanıcıları fetch etmek için ayrı useEffect
   useEffect(() => {
     if (currentUserId) {
       fetchUsers();
+      fetchChats();
+      
+      // Kullanıcı listesini her 10 saniyede bir yenile
+      const refreshInterval = setInterval(() => {
+        fetchUsers();
+        fetchChats();
+      }, 10000);
+      
+      return () => clearInterval(refreshInterval);
     }
   }, [currentUserId]);
 
-  // Online durumu güncelle
+  // Heartbeat - Her 30 saniyede bir ping gönder
   useEffect(() => {
-    if (!currentUserId) return;
+    if (!currentUserId || !socketRef.current) return;
 
-    // Sayfa yüklendiğinde online olarak işaretle
-    const updateOnlineStatus = async () => {
-      try {
-        await fetch(`${getApiBaseUrl()}/chat/user/${currentUserId}/online`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ isOnline: true }),
-        });
-      } catch (error) {
-        console.error('Online status update error:', error);
+    const heartbeatInterval = setInterval(() => {
+      if (socketRef.current?.connected) {
+        socketRef.current.emit('heartbeat', currentUserId);
       }
-    };
+    }, 30000); // 30 saniye
 
-    updateOnlineStatus();
-
-    // Sayfa kapatıldığında offline olarak işaretle
-    const handleBeforeUnload = async () => {
-      try {
-        await fetch(`${getApiBaseUrl()}/chat/user/${currentUserId}/online`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ isOnline: false }),
-        });
-      } catch (error) {
-        console.error('Offline status update error:', error);
-      }
-    };
-
-    window.addEventListener('beforeunload', handleBeforeUnload);
-
-    return () => {
-      window.removeEventListener('beforeunload', handleBeforeUnload);
-      // Component unmount olduğunda offline olarak işaretle
-      fetch(`${getApiBaseUrl()}/chat/user/${currentUserId}/online`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isOnline: false }),
-      }).catch(console.error);
-    };
+    return () => clearInterval(heartbeatInterval);
   }, [currentUserId]);
 
-  // Mesajları scroll'a kaydırmak için useEffect
+  // Page visibility - Sekme değişimlerini takip et
   useEffect(() => {
-    if (currentChat?.messages && currentChat.messages.length > 0) {
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('Tab hidden');
+      } else {
+        console.log('Tab visible');
+        // Tab'a geri dönüldüğünde kullanıcıları yenile
+        if (currentUserId) {
+          fetchUsers();
+        }
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [currentUserId]);
+
+  useEffect(() => {
       scrollToBottom();
-    }
   }, [currentChat?.messages]);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  };
+  // Mesajlar değiştiğinde ve chat açıksa okundu yap
+  useEffect(() => {
+    if (currentChat?._id && currentUserId) {
+      const hasUnreadMessages = currentChat.messages.some(msg => {
+        const senderId = typeof msg.sender === 'string' ? msg.sender : msg.sender._id;
+        return senderId !== currentUserId && msg.status !== 'read';
+      });
+      
+      if (hasUnreadMessages) {
+        // 1 saniye sonra read yap (kullanıcı mesajı görsün diye)
+        const timer = setTimeout(() => {
+          markMessagesAsRead(currentChat._id);
+        }, 1000);
+        
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [currentChat?.messages, currentChat?._id, currentUserId]);
 
   const fetchUsers = async () => {
     try {
       const response = await fetch(`${getApiBaseUrl()}/chat/all-users?excludeUserId=${currentUserId}`);
       if (response.ok) {
         const data = await response.json();
+        console.log('📊 Users fetched:', data.length, 'users');
+        console.log('🟢 Online users:', data.filter((u: User) => u.isOnline).length);
         setUsers(data);
       }
     } catch (error) {
       console.error('Users fetch error:', error);
     }
+  };
+
+  const fetchChats = async () => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/chat/user/${currentUserId}`);
+      if (response.ok) {
+        const data = await response.json();
+        setUserChats(data);
+      }
+    } catch (error) {
+      console.error('Chats fetch error:', error);
+    }
+  };
+
+  const getUnreadCount = (userId: string): number => {
+    const chat = userChats.find(c => 
+      c.participants.some(p => p._id === userId)
+    );
+    if (!chat || !chat.unreadCount || !currentUserId) return 0;
+    return chat.unreadCount[currentUserId] || 0;
   };
 
   const handleSelectUser = async (user: User) => {
@@ -346,20 +446,18 @@ export default function PersonnelChatPage() {
       const response = await fetch(`${getApiBaseUrl()}/chat/get-or-create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId1: currentUserId,
-          userId2: user._id
-        }),
+        body: JSON.stringify({ userId1: currentUserId, userId2: user._id }),
       });
       
       if (response.ok) {
         const chat = await response.json();
         setCurrentChat(chat);
         
-        // Mark as read
-        await fetch(`${getApiBaseUrl()}/chat/${chat._id}/read/${currentUserId}`, {
-          method: 'PUT'
-        });
+        // Mesajları okundu olarak işaretle
+        await markMessagesAsRead(chat._id);
+        
+        // Chats listesini güncelle
+        fetchChats();
       }
     } catch (error) {
       console.error('Chat fetch error:', error);
@@ -367,101 +465,63 @@ export default function PersonnelChatPage() {
     }
   };
 
-  const fetchChatMessages = async (chatId: string) => {
+  const markMessagesAsRead = async (chatId: string) => {
     try {
-      const response = await fetch(`${getApiBaseUrl()}/chat/user/${currentUserId}`);
-      if (response.ok) {
-        const chats = await response.json();
-        const chat = chats.find((c: Chat) => c._id === chatId);
-        if (chat) {
-          setCurrentChat(chat);
-        }
-      }
-    } catch (error) {
-      console.error('Refresh messages error:', error);
-    }
-  };
-
-  const handleDeleteMessage = async (messageId: string) => {
-    if (!currentChat || !currentUserId) return;
-
-    console.log('Attempting to delete message:', messageId);
-    console.log('Current chat ID:', currentChat._id);
-    console.log('Current user ID:', currentUserId);
-
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/chat/${currentChat._id}/message/${messageId}`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: currentUserId }),
+      await fetch(`${getApiBaseUrl()}/chat/${chatId}/read/${currentUserId}`, {
+        method: 'PUT'
       });
-
-      console.log('Delete response status:', response.status);
-
-      if (response.ok) {
-        const result = await response.json();
-        console.log('Message deleted successfully:', result);
-        toast.success('Mesaj silindi');
-        // Socket event will handle UI update
-      } else {
-        const errorData = await response.json();
-        console.error('Delete error response:', errorData);
-        toast.error(errorData.msg || 'Mesaj silinemedi');
-      }
     } catch (error) {
-      console.error('Delete message error:', error);
-      toast.error('Mesaj silinemedi');
+      console.error('Mark read error:', error);
     }
   };
 
   const handleTyping = () => {
-    if (!currentChat || !currentUserId || !socketRef.current) return;
+    if (!currentChat || !socketRef.current) return;
     
-    // Typing start event gönder
     socketRef.current.emit('typing_start', {
       chatId: currentChat._id,
       userId: currentUserId,
-      userName: 'Personel'
+      userName: 'Kullanıcı'
     });
     
-    // 3 saniye sonra typing stop gönder
-    setTimeout(() => {
+    if (typingTimeoutRef.current) {
+      clearTimeout(typingTimeoutRef.current);
+    }
+    
+    typingTimeoutRef.current = setTimeout(() => {
       if (socketRef.current) {
         socketRef.current.emit('typing_stop', {
           chatId: currentChat._id,
           userId: currentUserId
         });
       }
-    }, 3000);
+    }, 2000);
   };
 
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
     
-    // Dosya bilgilerini doğru şekilde sakla
-    const fileWithInfo = {
-      name: file.name,
-      size: file.size,
-      type: file.type,
-      url: null,
-      uploaded: false
-    };
+    // Dosya boyut kontrolü (10MB)
+    if (file.size > 10 * 1024 * 1024) {
+      toast.error('Dosya boyutu 10MB\'dan küçük olmalıdır');
+      return;
+    }
     
-    setSelectedFile(fileWithInfo as any);
+    setSelectedFile(file);
     
-    // Dosya önizlemesi oluştur
+    // Görsel önizleme
     if (file.type.startsWith('image/')) {
       const reader = new FileReader();
-      reader.onload = (e) => {
-        setFilePreview(e.target?.result as string);
-      };
+      reader.onload = (e) => setFilePreview(e.target?.result as string);
       reader.readAsDataURL(file);
     } else {
       setFilePreview(null);
     }
     
-    // Dosyayı backend'e yükle
+    // Dosyayı hemen yükle
+    toast.loading('Dosya yükleniyor...');
+    
     try {
       const formData = new FormData();
       formData.append('file', file);
@@ -471,759 +531,504 @@ export default function PersonnelChatPage() {
         body: formData,
       });
       
+      toast.dismiss();
+      
       if (response.ok) {
         const result = await response.json();
-        console.log('Dosya yüklendi:', result);
+        toast.success('Dosya yüklendi! Göndermek için Enter tuşuna basın veya Gönder butonuna tıklayın.');
         
-        // Yüklenen dosya bilgilerini selectedFile state'ine ekle
-        const uploadedFile = {
-          ...file,
-          url: result.fileUrl,
-          uploaded: true
-        };
-        setSelectedFile(uploadedFile as any);
-        
-        toast.success(`Dosya yüklendi: ${file.name}`);
-        
-        // Dosya yüklendikten sonra otomatik olarak mesaj gönder
-        setTimeout(() => {
-          handleSendMessage();
-        }, 500);
-        
+        // Dosyayı seçili tut, kullanıcı göndermek için hazır
+        (setSelectedFile as any).uploadedData = result;
       } else {
-        const error = await response.json();
-        toast.error(`Dosya yüklenemedi: ${error.msg}`);
+        toast.error('Dosya yüklenemedi');
+        setSelectedFile(null);
+        setFilePreview(null);
       }
     } catch (error) {
-      console.error('Dosya yükleme hatası:', error);
+      toast.dismiss();
+      console.error('File upload error:', error);
       toast.error('Dosya yükleme hatası');
-    }
-    
-    console.log('Dosya seçildi:', file.name);
-  };
-
-  const removeSelectedFile = () => {
     setSelectedFile(null);
     setFilePreview(null);
-  };
-
-  const formatFileSize = (bytes: number) => {
-    if (bytes === 0) return '0 Bytes';
-    const k = 1024;
-    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
-  };
-
-  const handleVideoCall = () => {
-    // Görüntülü arama başlatma
-    toast.info('Görüntülü arama özelliği yakında aktif olacak!');
-  };
-
-  const handleStatusUpdate = async () => {
-    if (!statusMessage.trim() || !currentUserId) return;
-
-    try {
-      const response = await fetch(`${getApiBaseUrl()}/chat/user/${currentUserId}/status`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ statusMessage: statusMessage.trim() }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        console.log('Status updated:', data);
-        
-        // Kullanıcı listesini yeniden yükle
-        await fetchUsers();
-        
-        toast.success('Durum mesajı güncellendi');
-        setShowStatusModal(false);
-        setStatusMessage('');
-      } else {
-        const errorData = await response.json();
-        toast.error(errorData.msg || 'Durum mesajı güncellenemedi');
-      }
-    } catch (error) {
-      console.error('Status update error:', error);
-      toast.error('Durum mesajı güncellenemedi');
     }
   };
 
-  const handleSendMessage = async () => {
-    if ((!message.trim() && !selectedFile) || !currentChat || !currentUserId || sending) return;
+  const handleSendMessage = async (fileData?: any) => {
+    // fileData yoksa ama selectedFile varsa uploaded data'yı kullan
+    const uploadedData = fileData || (setSelectedFile as any).uploadedData;
+    
+    if ((!message.trim() && !uploadedData && !selectedFile) || !currentChat || !currentUserId || sending) return;
 
-    const messageContent = message.trim();
+    const content = message.trim();
+    const tempId = `temp_${Date.now()}`;
     setSending(true);
     
     try {
-      let content = messageContent;
-      let type = 'text';
-      let fileName = null;
-      let fileSize = null;
-      let fileType = null;
-      let fileUrl = null;
+      const optimisticMessage: Message = {
+        _id: tempId,
+        sender: currentUserId,
+        content: uploadedData ? (content || `📎 ${uploadedData.fileName}`) : content,
+        type: uploadedData ? 'file' : 'text',
+        fileName: uploadedData?.fileName,
+        fileSize: uploadedData?.fileSize,
+        fileType: uploadedData?.fileType,
+        fileUrl: uploadedData?.fileUrl,
+        status: 'sending',
+        read: false,
+        createdAt: new Date().toISOString()
+      };
       
-      // Eğer dosya seçilmişse ve henüz yüklenmemişse
-      if (selectedFile && !(selectedFile as any)?.uploaded) {
-        toast.info('Dosya yükleniyor...');
-        return; // Dosya yükleme işlemi devam ediyor, mesaj gönderme
-      }
+      setCurrentChat(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          messages: [...prev.messages, optimisticMessage]
+        };
+      });
       
-      // Eğer dosya seçilmişse ve yüklenmişse
-      if (selectedFile && (selectedFile as any)?.uploaded) {
-        fileName = selectedFile.name;
-        fileSize = selectedFile.size;
-        fileType = selectedFile.type;
-        fileUrl = (selectedFile as any)?.url;
-        
-        if (messageContent) {
-          content = `${messageContent}\n\n📎 Dosya: ${fileName}`;
-        } else {
-          content = `📎 Dosya: ${fileName}`;
-        }
-        type = 'file';
-      }
+      setMessage('');
+      setSelectedFile(null);
+      setFilePreview(null);
+      
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
       
       const response = await fetch(`${getApiBaseUrl()}/chat/${currentChat._id}/message`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           senderId: currentUserId,
-          content: content,
-          type: type,
-          fileName: fileName,
-          fileSize: fileSize,
-          fileType: fileType,
-          fileUrl: fileUrl
+          content: uploadedData ? (content || `📎 ${uploadedData.fileName}`) : content,
+          type: uploadedData ? 'file' : 'text',
+          fileName: uploadedData?.fileName,
+          fileSize: uploadedData?.fileSize,
+          fileType: uploadedData?.fileType,
+          fileUrl: uploadedData?.fileUrl
         }),
       });
 
       if (response.ok) {
         const data = await response.json();
-        console.log('Message sent successfully:', data);
         
-        // Mesaj gönderildikten sonra input'u temizle
-        setMessage('');
+        setCurrentChat(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            messages: prev.messages.map(msg => 
+              msg._id === tempId ? { ...msg, _id: data.messageId, status: 'sent' } : msg
+            )
+          };
+        });
         
-        // Dosya seçimini temizle
-        setSelectedFile(null);
-        setFilePreview(null);
-        
-        // Socket'ten gelecek mesajı bekle - optimistic update kaldırıldı
-        // Bu sayede çift mesaj sorunu tamamen çözülür
+        setTimeout(() => {
+          setCurrentChat(prev => {
+            if (!prev) return prev;
+            return {
+              ...prev,
+              messages: prev.messages.map(msg => 
+                msg._id === data.messageId ? { ...msg, status: 'delivered' } : msg
+              )
+            };
+          });
+        }, 1000);
         
       } else {
-        const errorData = await response.json();
-        toast.error(errorData.msg || 'Mesaj gönderme hatası');
-        setMessage(messageContent); // Restore message if failed
+        setCurrentChat(prev => {
+          if (!prev) return prev;
+          return {
+            ...prev,
+            messages: prev.messages.filter(msg => msg._id !== tempId)
+          };
+        });
+        toast.error('Mesaj gönderilemedi');
       }
     } catch (error) {
-      console.error('Send message error:', error);
+      console.error('Send error:', error);
+      setCurrentChat(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          messages: prev.messages.filter(msg => msg._id !== tempId)
+        };
+      });
       toast.error('Mesaj gönderme hatası');
-      setMessage(messageContent); // Restore message if failed
     } finally {
       setSending(false);
     }
   };
 
-  const handleKeyPress = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
+  const handleDeleteMessage = async (messageId: string) => {
+    if (!currentChat || !currentUserId) return;
+
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/chat/${currentChat._id}/message/${messageId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUserId }),
+      });
+
+      if (response.ok) {
+        toast.success('Mesaj silindi');
+      } else {
+        toast.error('Mesaj silinemedi');
+      }
+    } catch (error) {
+      console.error('Delete error:', error);
+      toast.error('Silme hatası');
     }
   };
 
-  const filteredUsers = users
-    .filter(user =>
-      !searchTerm ||
-      (user.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (user.email || '').toLowerCase().includes(searchTerm.toLowerCase())
-    )
-    .sort((a, b) => {
-      // Online users first, then by name
-      if (a.isOnline && !b.isOnline) return -1;
-      if (!a.isOnline && b.isOnline) return 1;
-      return (a.name || '').localeCompare(b.name || '');
-    });
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
 
-  // WhatsApp benzeri mesaj durumu ikonları
-  const getMessageStatusIcon = (message: Message) => {
-    if (!message.status) return null;
+  const getMessageStatusIcon = (msg: Message) => {
+    if (!msg.status) return null;
     
-    switch (message.status) {
+    switch (msg.status) {
       case 'sending':
-        return <div className="w-3 h-3 border border-slate-400 rounded-full animate-pulse" />;
+        return (
+          <svg className="h-4 w-4 text-gray-400 animate-spin" viewBox="0 0 24 24" fill="none">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+          </svg>
+        );
       case 'sent':
         return (
-          <div className="flex">
-            <div className="w-3 h-3 bg-slate-400 rounded-full" />
-          </div>
+          <svg className="h-4 w-4 text-gray-400" viewBox="0 0 16 15" fill="none">
+            <path d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.879a.32.32 0 0 1-.484.033l-.358-.325a.319.319 0 0 0-.484.032l-.378.483a.418.418 0 0 0 .036.541l1.32 1.266c.143.14.361.125.484-.033l6.272-8.048a.366.366 0 0 0-.064-.512z" fill="currentColor"/>
+          </svg>
         );
       case 'delivered':
         return (
-          <div className="flex">
-            <div className="w-3 h-3 bg-slate-400 rounded-full" />
-            <div className="w-3 h-3 bg-slate-400 rounded-full -ml-1" />
-          </div>
+          <svg className="h-4 w-4 text-gray-400" viewBox="0 0 16 15" fill="none">
+            <path d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.879a.32.32 0 0 1-.484.033l-.358-.325a.319.319 0 0 0-.484.032l-.378.483a.418.418 0 0 0 .036.541l1.32 1.266c.143.14.361.125.484-.033l6.272-8.048a.366.366 0 0 0-.064-.512z" fill="currentColor"/>
+            <path d="M11.775 3.316l-.478-.372a.365.365 0 0 0-.51.063L5.431 9.879a.32.32 0 0 1-.484.033l-.358-.325a.319.319 0 0 0-.484.032l-.378.483a.418.418 0 0 0 .036.541l1.32 1.266c.143.14.361.125.484-.033l6.272-8.048a.366.366 0 0 0-.064-.512z" fill="currentColor"/>
+          </svg>
         );
       case 'read':
         return (
-          <div className="flex">
-            <div className="w-3 h-3 bg-blue-500 rounded-full" />
-            <div className="w-3 h-3 bg-blue-500 rounded-full -ml-1" />
-          </div>
+          <svg className="h-4 w-4 text-blue-500" viewBox="0 0 16 15" fill="none">
+            <path d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.879a.32.32 0 0 1-.484.033l-.358-.325a.319.319 0 0 0-.484.032l-.378.483a.418.418 0 0 0 .036.541l1.32 1.266c.143.14.361.125.484-.033l6.272-8.048a.366.366 0 0 0-.064-.512z" fill="currentColor"/>
+            <path d="M11.775 3.316l-.478-.372a.365.365 0 0 0-.51.063L5.431 9.879a.32.32 0 0 1-.484.033l-.358-.325a.319.319 0 0 0-.484.032l-.378.483a.418.418 0 0 0 .036.541l1.32 1.266c.143.14.361.125.484-.033l6.272-8.048a.366.366 0 0 0-.064-.512z" fill="currentColor"/>
+          </svg>
         );
       default:
         return null;
     }
   };
 
-  // Son görülme zamanını formatla
+  const formatTime = (date: string) => {
+    const d = new Date(date);
+    return d.toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+  };
+
   const formatLastSeen = (lastSeen: string) => {
-    if (!lastSeen) return 'Son görülme bilinmiyor';
-    
+    if (!lastSeen) return 'Bilinmiyor';
     const now = new Date();
     const seen = new Date(lastSeen);
-    const diffInMinutes = Math.floor((now.getTime() - seen.getTime()) / (1000 * 60));
+    const diffInMinutes = Math.floor((now.getTime() - seen.getTime()) / 60000);
     
-    if (diffInMinutes < 1) return 'Şimdi';
-    if (diffInMinutes < 60) return `${diffInMinutes} dakika önce`;
-    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)} saat önce`;
-    if (diffInMinutes < 10080) return `${Math.floor(diffInMinutes / 1440)} gün önce`;
+    if (diffInMinutes < 1) return 'Az önce aktifti';
+    if (diffInMinutes < 60) return `${diffInMinutes} dakika önce aktifti`;
+    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)} saat önce aktifti`;
+    if (diffInMinutes < 10080) return `${Math.floor(diffInMinutes / 1440)} gün önce aktifti`;
     
-    return seen.toLocaleDateString('tr-TR');
+    return seen.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
   };
 
-  // Mesaj zamanını formatla
-  const formatMessageTime = (createdAt: string) => {
-    const now = new Date();
-    const messageTime = new Date(createdAt);
-    const diffInMinutes = Math.floor((now.getTime() - messageTime.getTime()) / (1000 * 60));
+  const formatDateSeparator = (date: string) => {
+    const msgDate = new Date(date);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
     
-    if (diffInMinutes < 1) return 'Şimdi';
-    if (diffInMinutes < 60) return `${diffInMinutes}dk`;
-    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}s`;
-    
-    return messageTime.toLocaleDateString('tr-TR', { 
-      day: 'numeric', 
-      month: 'short',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
+    if (msgDate.toDateString() === today.toDateString()) {
+      return 'Bugün';
+    } else if (msgDate.toDateString() === yesterday.toDateString()) {
+      return 'Dün';
+    } else {
+      return msgDate.toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' });
+    }
   };
+
+  const filteredUsers = users.filter(user =>
+    user.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    user.email?.toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
-    <div className="flex min-h-screen bg-slate-900">
+    <div className="flex h-screen bg-background">
       <Sidebar />
       
-      <div className="flex-1 ml-16 lg:ml-0">
-        <div className="h-screen flex">
-          {/* Users List */}
-          <div className={`${isUserListCollapsed ? 'w-0 md:w-16' : 'w-full md:w-80'} border-r border-slate-700 bg-slate-800 flex flex-col transition-all duration-300 overflow-hidden`}>
-            <div className="p-4 border-b border-slate-700">
-              {isUserListCollapsed ? (
-                <div className="flex flex-col items-center space-y-4">
-                  <div className="w-6 h-6 bg-slate-600 rounded flex items-center justify-center">
-                    <MessageSquare className="h-4 w-4 text-white" />
-                  </div>
+      <div className="flex-1 flex ml-16 lg:ml-0">
+        {/* USERS LIST */}
+        <div className="w-full md:w-80 border-r">
+          <div className="p-4 border-b">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-xl font-semibold flex items-center gap-2">
+                <MessageSquare className="h-5 w-5" />
+                Mesajlar
+              </h2>
                   <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => setIsUserListCollapsed(false)}
-                    className="text-slate-400 hover:text-white hover:bg-slate-700"
-                  >
-                    <div className="w-4 h-4 flex flex-col space-y-1">
-                      <div className="w-full h-0.5 bg-current"></div>
-                      <div className="w-full h-0.5 bg-current"></div>
-                      <div className="w-full h-0.5 bg-current"></div>
-                    </div>
+                variant="outline" 
+                size="sm"
+                onClick={testNotificationSound}
+                className="text-xs"
+              >
+                🔊 Test
                   </Button>
                 </div>
-              ) : (
-                <>
-                  <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-6 h-6 bg-slate-600 rounded flex items-center justify-center">
-                        <MessageSquare className="h-4 w-4 text-white" />
-                      </div>
-                      <h2 className="text-lg font-semibold text-white">Simple Chat</h2>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => window.history.back()}
-                        className="text-slate-400 hover:text-white hover:bg-slate-700"
-                      >
-                        <ArrowLeft className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setIsUserListCollapsed(true)}
-                        className="text-slate-400 hover:text-white hover:bg-slate-700"
-                      >
-                        <div className="w-4 h-4 flex flex-col space-y-1">
-                          <div className="w-full h-0.5 bg-current"></div>
-                          <div className="w-full h-0.5 bg-current"></div>
-                          <div className="w-full h-0.5 bg-current"></div>
-                        </div>
-                      </Button>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Ara..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-9"
+              />
                     </div>
                   </div>
                   
-                  {/* Recent Chats Section */}
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-sm font-medium text-white">RECENT CHATS</span>
-                      <div className="bg-slate-600 text-white text-xs px-2 py-1 rounded-full">
-                        {filteredUsers.length}
-                      </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => {
-                          const currentUser = users.find(u => u._id === currentUserId);
-                          setStatusMessage(currentUser?.statusMessage || '');
-                          setShowStatusModal(true);
-                        }}
-                        className="text-slate-400 hover:text-white hover:bg-slate-700 h-6 w-6"
-                      >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                        </svg>
-                      </Button>
-                      <div className="w-4 h-4 text-slate-400">
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M7 10l5 5 5-5z"/>
-                        </svg>
-                      </div>
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-
-            {!isUserListCollapsed && (
-              <div className="flex-1 overflow-y-auto">
-                {filteredUsers.length === 0 ? (
-                  <div className="p-8 text-center">
-                    <Users className="h-16 w-16 text-slate-400 mx-auto mb-4 opacity-50" />
-                    <p className="text-slate-400 text-sm">Kullanıcı bulunamadı</p>
-                  </div>
-                ) : (
-                  <div className="p-2">
+          <div className="overflow-y-auto h-[calc(100vh-9rem)]">
                     {filteredUsers.map((user) => (
                       <div
                         key={user._id}
                         onClick={() => handleSelectUser(user)}
-                        className={`p-4 border-b border-slate-700 cursor-pointer transition-colors hover:bg-slate-700/50 ${
-                          selectedUser?._id === user._id
-                            ? 'bg-slate-700'
-                            : ''
-                        }`}
-                      >
-                        <div className="flex items-center space-x-3">
+                className={`p-4 border-b cursor-pointer hover:bg-accent transition-colors ${
+                  selectedUser?._id === user._id ? 'bg-accent' : ''
+                }`}
+              >
+                <div className="flex items-center gap-3">
                           <div className="relative">
                             <Avatar className="h-12 w-12">
                               {user.avatar && <AvatarImage src={`${getApiUrl()}${user.avatar}`} />}
-                              <AvatarFallback className="bg-slate-600 text-white">
-                                {(user.name || 'U').charAt(0).toUpperCase()}
-                              </AvatarFallback>
+                      <AvatarFallback>{user.name?.charAt(0).toUpperCase()}</AvatarFallback>
                             </Avatar>
-                            <div className={`absolute -bottom-1 -right-1 h-4 w-4 rounded-full border-2 border-slate-800 ${
-                              user.isOnline ? 'bg-green-500' : 'bg-gray-500'
+                    <div className={`absolute -bottom-0.5 -right-0.5 h-3.5 w-3.5 rounded-full border-2 border-background ${
+                      user.isOnline ? 'bg-green-500' : 'bg-muted'
                             }`} />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="flex items-center justify-between">
-                              <p className="text-sm font-medium text-white truncate">
-                                {user.name || 'İsimsiz Kullanıcı'}
-                              </p>
-                              <span className="text-xs text-slate-400">
-                                {user.isOnline 
-                                  ? 'Çevrimiçi' 
-                                  : user.lastSeen 
-                                    ? formatLastSeen(user.lastSeen)
-                                    : 'Bilinmiyor'
-                                }
-                              </span>
+                            <div className="flex items-center justify-between mb-1">
+                              <p className="font-medium truncate">{user.name}</p>
+                              {getUnreadCount(user._id) > 0 && (
+                                <Badge className="bg-primary text-primary-foreground h-5 min-w-5 flex items-center justify-center text-xs px-1.5">
+                                  {getUnreadCount(user._id)}
+                                </Badge>
+                              )}
                             </div>
-                              <p className="text-xs text-slate-400 truncate">
-                                {user.statusMessage || 'Hey! How have you been...'}
-                              </p>
+                            <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                              {user.isOnline ? (
+                                <>
+                                  <Circle className="h-2 w-2 fill-green-500 text-green-500" />
+                                  <span>Çevrimiçi</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Clock className="h-3 w-3" />
+                                  <span className="truncate">{formatLastSeen(user.lastSeen || '')}</span>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
                       </div>
                     ))}
                   </div>
-                )}
-              </div>
-            )}
           </div>
 
-          {/* Chat Area */}
-          <div className="flex-1 flex flex-col bg-slate-900">
+        {/* CHAT AREA */}
+        <div className="flex-1 flex flex-col">
             {!selectedUser ? (
               <div className="flex-1 flex items-center justify-center">
                 <div className="text-center">
-                  <MessageSquare className="h-24 w-24 text-slate-400 mx-auto mb-4 opacity-30" />
-                  <h3 className="text-2xl font-semibold text-slate-300 mb-2">Mesajlaşmaya Başlayın</h3>
-                  <p className="text-slate-400">Sol taraftan bir kullanıcı seçin</p>
+                <MessageSquare className="h-16 w-16 text-muted-foreground mx-auto mb-4 opacity-50" />
+                <h3 className="text-xl font-semibold mb-2">Bir sohbet seçin</h3>
+                <p className="text-sm text-muted-foreground">Mesajlaşmaya başlamak için sol taraftan birini seçin</p>
                 </div>
               </div>
             ) : (
               <>
-                {/* Chat Header */}
-                <div className="p-4 border-b border-slate-700 bg-slate-800">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-3">
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setSelectedUser(null)}
-                        className="md:hidden text-slate-400 hover:text-white hover:bg-slate-700"
-                      >
-                        <ArrowLeft className="h-5 w-5" />
-                      </Button>
+              {/* HEADER */}
+              <div className="p-4 border-b flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <Avatar className="h-10 w-10">
+                    {selectedUser.avatar && <AvatarImage src={`${getApiUrl()}${selectedUser.avatar}`} />}
+                    <AvatarFallback>{selectedUser.name?.charAt(0).toUpperCase()}</AvatarFallback>
+                  </Avatar>
                       <div>
-                        <h3 className="text-white font-medium">{selectedUser.name || 'İsimsiz Kullanıcı'}</h3>
-                        <p className="text-xs text-slate-400">
-                          {selectedUser.isOnline 
-                            ? 'Çevrimiçi' 
-                            : selectedUser.lastSeen 
-                              ? formatLastSeen(selectedUser.lastSeen)
-                              : 'Son görülme bilinmiyor'
-                          }
-                        </p>
+                    <p className="font-semibold">{selectedUser.name}</p>
+                    <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                      {selectedUser.isOnline ? (
+                        <>
+                          <Circle className="h-2 w-2 fill-green-500 text-green-500" />
+                          <span>Çevrimiçi</span>
+                        </>
+                      ) : (
+                        <>
+                          <Clock className="h-3 w-3" />
+                          <span>{formatLastSeen(selectedUser.lastSeen || '')}</span>
+                        </>
+                      )}
                       </div>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="text-slate-400 hover:text-white hover:bg-slate-700"
-                    >
-                      <ArrowLeft className="h-4 w-4" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      onClick={handleVideoCall}
-                      className="text-slate-400 hover:text-white hover:bg-slate-700"
-                    >
-                      <div className="w-5 h-5">
-                        <svg viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M17 10.5V7c0-.55-.45-1-1-1H4c-.55 0-1 .45-1 1v10c0 .55.45 1 1 1h12c.55 0 1-.45 1-1v-3.5l4 4v-11l-4 4z"/>
-                        </svg>
-                      </div>
-                    </Button>
                     </div>
                   </div>
                 </div>
 
-                {/* Messages Area */}
-                <div className="flex-1 overflow-y-auto bg-gradient-to-b from-slate-800 to-slate-900 relative">
-                  
-                  <div className="p-4 space-y-4">
-                    {currentChat?.messages?.filter(msg => msg && msg.sender).map((msg, index, messages) => {
-                      // Güvenli kontrol - msg'ın varlığını ve sender property'sini kontrol et
-                      if (!msg || !msg.sender) {
-                        console.warn('Invalid message object:', msg);
-                        return null;
-                      }
-                      
-                      const isSender = typeof msg.sender === 'string' 
-                        ? msg.sender === currentUserId 
-                        : msg.sender._id === currentUserId;
+              {/* MESSAGES */}
+              <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                {currentChat?.messages.map((msg, index) => {
+                  const isSender = (typeof msg.sender === 'string' ? msg.sender : msg.sender._id) === currentUserId;
+                  const isImage = msg.fileType?.startsWith('image/');
 
                       // Tarih ayırıcısı kontrolü
-                      const currentDate = new Date(msg.createdAt).toDateString();
-                      const prevMessage = index > 0 ? messages[index - 1] : null;
-                      const prevDate = prevMessage ? new Date(prevMessage.createdAt).toDateString() : null;
-                      const showDateSeparator = currentDate !== prevDate;
+                  const showDateSeparator = index === 0 || 
+                    new Date(currentChat.messages[index - 1].createdAt).toDateString() !== new Date(msg.createdAt).toDateString();
                       
                       return (
-                        <div key={msg._id || index}>
+                    <div key={msg._id}>
                           {/* Tarih Ayırıcısı */}
                           {showDateSeparator && (
-                            <div className="flex justify-center py-4">
-                              <div className="bg-slate-700 text-white text-xs px-3 py-1 rounded-full">
-                                {new Date(msg.createdAt).toLocaleDateString('tr-TR', {
-                                  day: 'numeric',
-                                  month: 'long',
-                                  year: 'numeric'
-                                })}
+                        <div className="flex justify-center my-4">
+                          <div className="bg-muted px-3 py-1 rounded-full text-xs text-muted-foreground">
+                            {formatDateSeparator(msg.createdAt)}
                               </div>
                             </div>
                           )}
                           
-                          <div
-                            className={`flex ${isSender ? 'justify-end' : 'justify-start'} animate-slide-in group`}
-                          >
-                          <div className="relative flex items-end space-x-2">
-                            {!isSender && (
-                              <Avatar className="h-8 w-8">
-                                {selectedUser.avatar && <AvatarImage src={`${getApiUrl()}${selectedUser.avatar}`} />}
-                                <AvatarFallback className="bg-slate-600 text-white text-xs">
-                                  {(selectedUser.name || 'U').charAt(0).toUpperCase()}
-                                </AvatarFallback>
-                              </Avatar>
-                            )}
-                            
-                            <div
-                              className={`max-w-xs lg:max-w-md px-4 py-3 rounded-2xl ${
-                                isSender
-                                  ? 'bg-slate-800 text-white rounded-br-sm'
-                                  : 'bg-slate-800 text-white rounded-bl-sm'
-                              } transform transition-all duration-200 hover:scale-[1.02]`}
-                            >
-                              {/* Resim mesajı ise */}
-                              {msg.type === 'file' && msg.fileName && msg.fileType?.startsWith('image/') ? (
+                      {/* Mesaj */}
+                      <div className={`flex ${isSender ? 'justify-end' : 'justify-start'} group`}>
+                        <Card className={`max-w-md p-3 ${isSender ? 'bg-primary text-primary-foreground' : ''}`}>
+                        {isImage && msg.fileUrl ? (
                                 <div className="space-y-2">
-                                  {/* Resim önizlemesi */}
-                                  <div 
-                                    className="relative cursor-pointer group"
-                                    onClick={() => {
-                                      // Gerçek dosya URL'sini kullan
-                                      const imageUrl = msg.fileUrl || 'https://via.placeholder.com/400x300/374151/ffffff?text=Resim+Yok';
-                                      setSelectedImage(imageUrl);
-                                      setShowImageModal(true);
-                                    }}
-                                  >
-                                    <img 
-                                      src={msg.fileUrl || 'https://via.placeholder.com/192x128/374151/ffffff?text=Resim+Yok'} // Placeholder resim
-                                      alt={msg.fileName}
-                                      className="w-48 h-32 object-cover rounded-lg hover:opacity-90 transition-opacity"
-                                      onError={(e) => {
-                                        // Resim yüklenemezse dosya ikonu göster
-                                        e.currentTarget.style.display = 'none';
-                                        e.currentTarget.nextElementSibling?.classList.remove('hidden');
-                                      }}
-                                    />
-                                    <div className="hidden w-48 h-32 bg-slate-700 rounded-lg flex items-center justify-center">
-                                      <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                      </svg>
-                                    </div>
-                                    {/* Hover overlay */}
-                                    <div className="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-30 rounded-lg flex items-center justify-center transition-all duration-200">
-                                      <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                        <svg className="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0zM10 7v3m0 0v3m0-3h3m-3 0H7" />
-                                        </svg>
-                                      </div>
-                                    </div>
-                                  </div>
-                                  
-                                  {/* Dosya bilgileri */}
-                                  <div className="flex items-center justify-between text-xs text-slate-400">
-                                    <span>{msg.fileName}</span>
-                                    <span>{msg.fileSize ? formatFileSize(msg.fileSize) : ''}</span>
-                                  </div>
-                                  
-                                  {/* Metin içeriği varsa */}
-                                  {msg.content && !msg.content.includes('📎 Dosya:') && (
-                                    <p className="text-sm break-words leading-relaxed">{msg.content}</p>
+                            <img 
+                              src={`${getApiBaseUrl()}${msg.fileUrl}`}
+                              alt={msg.fileName || 'Resim'}
+                              className="rounded-md cursor-pointer hover:opacity-80 transition-opacity max-h-80 w-full object-cover"
+                              onClick={() => window.open(`${getApiBaseUrl()}${msg.fileUrl}`, '_blank')}
+                            />
+                            {msg.content && !msg.content.includes('📎') && (
+                              <p className="text-sm">{msg.content}</p>
                                   )}
                                 </div>
-                              ) : msg.type === 'file' && msg.fileName ? (
-                                /* Diğer dosya türleri */
+                        ) : msg.type === 'file' && msg.fileUrl ? (
                                 <div className="space-y-2">
-                                  {/* Dosya bilgileri */}
-                                  <div className="flex items-center space-x-2 p-2 bg-slate-700 rounded-lg">
-                                    <div className="w-8 h-8 bg-slate-600 rounded flex items-center justify-center">
-                                      <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                      </svg>
-                                    </div>
+                            <div className="flex items-center gap-2 p-2 rounded-md bg-muted">
+                              <Paperclip className="h-4 w-4" />
                                     <div className="flex-1 min-w-0">
-                                      <p className="text-xs font-medium text-white truncate">{msg.fileName}</p>
-                                      <p className="text-xs text-slate-400">
-                                        {msg.fileSize ? formatFileSize(msg.fileSize) : ''}
+                                <p className="text-xs font-medium truncate">{msg.fileName}</p>
+                                <p className="text-xs text-muted-foreground">
+                                  {msg.fileSize ? `${Math.round(msg.fileSize / 1024)} KB` : ''}
                                       </p>
                                     </div>
-                                    <Button
-                                      variant="ghost"
-                                      size="icon"
-                                      onClick={() => {
-                                        // Dosya indirme işlemi
-                                        const link = document.createElement('a');
-                                        link.href = msg.fileUrl || '#'; // Gerçek dosya URL'si buraya gelecek
-                                        link.download = msg.fileName || 'dosya';
-                                        link.click();
-                                        toast.info('Dosya indiriliyor...');
-                                      }}
-                                      className="text-slate-400 hover:text-white hover:bg-slate-600 h-6 w-6"
-                                    >
-                                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                      </svg>
-                                    </Button>
                                   </div>
-                                  
-                                  {/* Metin içeriği varsa */}
-                                  {msg.content && !msg.content.includes('📎 Dosya:') && (
-                                    <p className="text-sm break-words leading-relaxed">{msg.content}</p>
-                                  )}
                                 </div>
                               ) : (
-                                /* Normal metin mesajı */
-                                <p className="text-sm break-words leading-relaxed">{msg.content}</p>
-                              )}
-                              
-                              <div className="flex items-center justify-between mt-2">
-                                <p className="text-[10px] text-slate-400">
-                                  {formatMessageTime(msg.createdAt)}
-                                </p>
-                                {isSender && (
-                                  <div className="flex items-center space-x-1">
-                                    {getMessageStatusIcon(msg)}
-                                  </div>
-                                )}
-                              </div>
+                          <p className="text-sm">{msg.content}</p>
+                        )}
+                        
+                        <div className={`flex items-center justify-end gap-1 mt-1 ${isSender ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
+                          <span className="text-xs">{formatTime(msg.createdAt)}</span>
+                          {isSender && getMessageStatusIcon(msg)}
                             </div>
                             
-                            {isSender && (
-                              <Avatar className="h-8 w-8">
-                                <AvatarFallback className="bg-slate-600 text-white text-xs">
-                                  {currentUserId?.charAt(0).toUpperCase() || 'U'}
-                                </AvatarFallback>
-                              </Avatar>
-                            )}
-                            
-                            {/* Silme butonu - sadece gönderen görebilir */}
-                            {isSender && msg._id && (
+                          {isSender && msg._id && !msg._id.startsWith('temp_') && (
                               <Button
                                 variant="ghost"
                                 size="icon"
                                 onClick={() => handleDeleteMessage(msg._id!)}
-                                className="absolute -top-2 -right-2 h-6 w-6 bg-slate-600 hover:bg-slate-700 text-white opacity-0 group-hover:opacity-100 transition-all duration-200 shadow-md"
+                              className="absolute -top-2 -right-2 h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity"
                               >
-                                <Trash2 className="h-3 w-3" />
+                              <X className="h-3 w-3" />
                               </Button>
                             )}
-                          </div>
+                        </Card>
                           </div>
                         </div>
                       );
                     })}
                     
-                    {/* Typing Indicator */}
                     {isTyping && (
                       <div className="flex justify-start">
-                        <div className="flex items-center space-x-2">
-                          <Avatar className="h-8 w-8">
-                            {selectedUser.avatar && <AvatarImage src={`${getApiUrl()}${selectedUser.avatar}`} />}
-                            <AvatarFallback className="bg-slate-600 text-white text-xs">
-                              {(selectedUser.name || 'U').charAt(0).toUpperCase()}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div className="bg-slate-800 text-slate-400 text-sm px-4 py-3 rounded-2xl rounded-bl-sm">
-                            {typingUser} yazıyor...
+                    <Card className="p-3">
+                      <div className="flex space-x-1">
+                        <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" />
+                        <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0.1s' }} />
+                        <div className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce" style={{ animationDelay: '0.2s' }} />
                           </div>
-                        </div>
+                    </Card>
                       </div>
                     )}
                     
                     <div ref={messagesEndRef} />
-                  </div>
                 </div>
 
-                {/* File Preview */}
+              {/* FILE PREVIEW */}
                 {selectedFile && (
-                  <div className="p-4 border-t border-slate-700 bg-slate-800">
-                    <div className="flex items-center space-x-3 p-3 bg-slate-700 rounded-lg">
+                <div className="px-4 py-2 border-t">
+                  <Card className="p-2 flex items-center gap-2">
                       {filePreview ? (
-                        <img 
-                          src={filePreview} 
-                          alt="Preview" 
-                          className="w-12 h-12 object-cover rounded"
-                        />
-                      ) : (
-                        <div className="w-12 h-12 bg-slate-600 rounded flex items-center justify-center">
-                          <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                          </svg>
+                      <img src={filePreview} alt="Preview" className="w-12 h-12 object-cover rounded" />
+                    ) : (
+                      <div className="w-12 h-12 bg-muted rounded flex items-center justify-center">
+                        <Paperclip className="h-5 w-5" />
                         </div>
                       )}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-white truncate">
-                          {(selectedFile as any)?.name || 'Dosya'}
-                        </p>
-                        <p className="text-xs text-slate-400">
-                          {formatFileSize((selectedFile as any)?.size || 0)}
-                        </p>
-                      </div>
+                    <span className="flex-1 text-sm truncate">{selectedFile.name}</span>
                       <Button
                         variant="ghost"
                         size="icon"
-                        onClick={removeSelectedFile}
-                        className="text-slate-400 hover:text-white hover:bg-slate-600"
+                      onClick={() => { setSelectedFile(null); setFilePreview(null); }}
                       >
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
+                      <X className="h-4 w-4" />
                       </Button>
-                    </div>
+                  </Card>
                   </div>
                 )}
 
-                {/* Message Input */}
-                <div className="p-4 border-t border-slate-700 bg-slate-800">
-                  <div className="flex items-center space-x-3">
-                    {/* Attachment Button */}
-                    <div className="relative">
+              {/* INPUT */}
+              <div className="p-4 border-t">
+                <div className="flex items-center gap-2">
                       <input
                         type="file"
-                        id="file-upload-personnel"
+                    id="file-upload"
                         onChange={handleFileUpload}
                         className="hidden"
                         accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt"
                       />
                       <Button
-                        variant="ghost"
+                    variant="outline"
                         size="icon"
-                        onClick={() => document.getElementById('file-upload-personnel')?.click()}
-                        className="rounded-full h-11 w-11 bg-slate-700 hover:bg-slate-600 text-white"
-                      >
-                        <div className="w-5 h-5">
-                          <svg viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/>
-                          </svg>
-                        </div>
+                    onClick={() => document.getElementById('file-upload')?.click()}
+                  >
+                    <Paperclip className="h-4 w-4" />
                       </Button>
-                    </div>
                     
-                    {/* Message Input */}
-                    <div className="flex-1 relative">
                       <Input
-                        placeholder="Type something..."
+                    ref={inputRef}
+                    placeholder="Mesaj yazın..."
                         value={message}
                         onChange={(e) => {
                           setMessage(e.target.value);
                           handleTyping();
                         }}
-                        onKeyPress={handleKeyPress}
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendMessage();
+                      }
+                    }}
                         disabled={sending}
-                        className="bg-slate-700 border-slate-600 text-white placeholder-slate-400 rounded-full px-4 py-3 pr-12 focus:ring-2 focus:ring-slate-500 focus:border-transparent"
+                    className="flex-1"
                       />
-                    </div>
                     
-                    {/* Send Button */}
                     <Button
-                      onClick={handleSendMessage}
+                    onClick={() => handleSendMessage()}
                       disabled={(!message.trim() && !selectedFile) || sending}
-                      className="bg-slate-700 hover:bg-slate-600 text-white px-6 py-3 rounded-full font-medium"
-                    >
-                      {sending ? (
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                      ) : (
-                        'Send'
-                      )}
+                  >
+                    {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                     </Button>
                   </div>
                 </div>
@@ -1231,142 +1036,6 @@ export default function PersonnelChatPage() {
             )}
           </div>
         </div>
-      </div>
-      
-      <style jsx global>{`
-        @keyframes slide-in {
-          from {
-            opacity: 0;
-            transform: translateY(10px);
-          }
-          to {
-            opacity: 1;
-            transform: translateY(0);
-          }
-        }
-        
-        .animate-slide-in {
-          animation: slide-in 0.3s ease-out;
-        }
-      `}</style>
-
-      {/* Status Message Modal */}
-      {showStatusModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="relative max-w-md w-full bg-slate-800 rounded-lg overflow-hidden">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-700">
-              <h3 className="text-lg font-semibold text-white">Durum Mesajı Ayarla</h3>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setShowStatusModal(false)}
-                className="text-slate-400 hover:text-white hover:bg-slate-700"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </Button>
-            </div>
-            
-            {/* Modal Content */}
-            <div className="p-4">
-              <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-white mb-2">
-                    Durum Mesajınız
-                  </label>
-                  <Input
-                    placeholder="Durum mesajınızı yazın..."
-                    value={statusMessage}
-                    onChange={(e) => setStatusMessage(e.target.value)}
-                    className="bg-slate-700 border-slate-600 text-white placeholder-slate-400"
-                    maxLength={100}
-                  />
-                  <p className="text-xs text-slate-400 mt-1">
-                    {statusMessage.length}/100 karakter
-                  </p>
-                </div>
-                
-                <div className="flex justify-end space-x-2">
-                  <Button
-                    variant="ghost"
-                    onClick={() => setShowStatusModal(false)}
-                    className="text-slate-400 hover:text-white"
-                  >
-                    İptal
-                  </Button>
-                  <Button
-                    onClick={handleStatusUpdate}
-                    disabled={!statusMessage.trim()}
-                    className="bg-slate-700 hover:bg-slate-600 text-white"
-                  >
-                    Güncelle
-                  </Button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Image Modal */}
-      {showImageModal && selectedImage && (
-        <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
-          <div className="relative max-w-4xl max-h-full bg-slate-800 rounded-lg overflow-hidden">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between p-4 border-b border-slate-700">
-              <h3 className="text-lg font-semibold text-white">Resim Görüntüle</h3>
-              <div className="flex items-center space-x-2">
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => {
-                    const link = document.createElement('a');
-                    link.href = selectedImage;
-                    link.download = 'resim.jpg';
-                    link.click();
-                    toast.success('Resim indiriliyor...');
-                  }}
-                  className="text-slate-400 hover:text-white hover:bg-slate-700"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                  </svg>
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={() => setShowImageModal(false)}
-                  className="text-slate-400 hover:text-white hover:bg-slate-700"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </Button>
-              </div>
-            </div>
-            
-            {/* Modal Content */}
-            <div className="p-4">
-              <div className="text-white text-sm mb-2">
-                Debug: {selectedImage}
-              </div>
-              <img 
-                src={selectedImage || 'https://via.placeholder.com/400x300/374151/ffffff?text=Resim+Yok'} 
-                alt="Büyük resim" 
-                className="max-w-full max-h-96 object-contain rounded-lg"
-                onLoad={() => console.log('Resim yüklendi:', selectedImage)}
-                onError={(e) => {
-                  console.log('Resim yüklenemedi:', selectedImage);
-                  e.currentTarget.src = 'https://via.placeholder.com/400x300/374151/ffffff?text=Resim+Yuklenemedi';
-                }}
-              />
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
-

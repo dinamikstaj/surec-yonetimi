@@ -1,32 +1,161 @@
 'use client';
 
-import { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useRef } from 'react';
+import { useRouter, usePathname } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
 import { MessageSquare } from 'lucide-react';
 import io from 'socket.io-client';
-import { getApiUrl } from '@/lib/utils';
+import { getApiBaseUrl } from '@/lib/utils';
 
 export default function ChatButton() {
   const [unreadCount, setUnreadCount] = useState(0);
+  const [userSound, setUserSound] = useState<string | undefined>(undefined);
   const router = useRouter();
+  const pathname = usePathname();
+  const socketRef = useRef<any>(null);
+
+  // Nudge için ses çalma (kullanıcının seçtiği ses)
+  const playNudgeSound = (soundType?: string) => {
+    try {
+      const chosen = soundType || userSound;
+      if (!chosen) return; // default yok
+      const file = `/sounds/${chosen}.mp3`;
+      
+      // Audio permission için user interaction simulation
+      const playWithPermission = () => {
+        const audio1 = new Audio(file);
+        audio1.volume = 0.8;
+        audio1.preload = 'auto';
+        audio1.play().catch(() => {});
+        
+        setTimeout(() => {
+          const audio2 = new Audio(file);
+          audio2.volume = 0.8;
+          audio2.play().catch(() => {});
+        }, 200);
+      };
+      
+      // İlk kez permission al
+      if (!(window as any).audioPermissionGranted) {
+        // Silent audio ile permission al
+        const silentAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=');
+        silentAudio.volume = 0;
+        silentAudio.play().then(() => {
+          (window as any).audioPermissionGranted = true;
+          playWithPermission();
+        }).catch(() => {
+          // Fallback: click simulation
+          const clickEvent = new MouseEvent('click', { bubbles: true });
+          document.dispatchEvent(clickEvent);
+          (window as any).audioPermissionGranted = true;
+          playWithPermission();
+        });
+      } else {
+        playWithPermission();
+      }
+    } catch (e) {
+      // noop
+    }
+  };
 
   useEffect(() => {
-    const socket = io(getApiUrl());
     const userId = localStorage.getItem('userId');
+    if (!userId) return;
 
-    if (userId) {
-      // Listen for new messages
-      socket.on(`new_message_${userId}`, () => {
-        setUnreadCount(prev => prev + 1);
-      });
+    // Socket bağlantısı
+    const backendUrl = typeof window !== 'undefined' 
+      ? `${window.location.protocol}//${window.location.hostname}:5000`
+      : 'http://localhost:5000';
+    
+    if (socketRef.current) {
+      socketRef.current.disconnect();
     }
+    
+    socketRef.current = io(backendUrl, {
+      transports: ['websocket', 'polling']
+    });
+
+    socketRef.current.on('connect', () => {
+      socketRef.current.emit('join_user', userId);
+    });
+
+    // Yeni mesaj geldiğinde sayacı artır
+    socketRef.current.on('new_message', (data: any) => {
+      // Chat sayfasında değilse veya farklı chat'teyse bildirim göster
+      const isOnChatPage = pathname?.includes('/chat');
+      if (!isOnChatPage) {
+        setUnreadCount(prev => prev + 1);
+      }
+    });
+
+    // Dürt bildirimi: her sayfada yakala ve ses çal + toast göster
+    socketRef.current.on('nudge_notification', (data: any) => {
+      try {
+        if (!data || !data.userId) return;
+        if (data.userId !== userId) return; // yalnızca hedef kullanıcı
+
+        console.log('⚡ Nudge received (global):', data);
+        
+        // Backend'den gelen hedef kullanıcının sesini çal
+        const soundToPlay = data.targetUserSound || userSound;
+        playNudgeSound(soundToPlay);
+        toast.warning('Dürtüldünüz! ' + (data.message || ''));
+      } catch (err) {
+        console.error('Nudge handle error (global):', err);
+      }
+    });
+
+    // Unread count'u backend'den al
+    fetchUnreadCount(userId);
 
     return () => {
-      socket.disconnect();
+      if (socketRef.current) {
+        socketRef.current.disconnect();
+      }
     };
+  }, [pathname]);
+
+  // Kullanıcının seçtiği bildirimi sesi ve audio iznini al
+  useEffect(() => {
+    const userId = localStorage.getItem('userId');
+    if (!userId) return;
+
+    const fetchUser = async () => {
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/users/${userId}`);
+        if (res.ok) {
+          const user = await res.json();
+          if (user?.notificationSound) setUserSound(user.notificationSound);
+        }
+      } catch {}
+    };
+
+    const requestAudioPermission = async () => {
+      try {
+        const silent = new Audio('/sounds/hamzaaa.mp3');
+        silent.volume = 0;
+        await silent.play();
+        silent.pause();
+      } catch {}
+    };
+
+    fetchUser();
+    requestAudioPermission();
   }, []);
+
+  const fetchUnreadCount = async (userId: string) => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/chat/user/${userId}/unread-count`);
+      if (response.ok) {
+        const data = await response.json();
+        setUnreadCount(data.unreadCount || 0);
+      }
+    } catch (error) {
+      console.error('Fetch unread error:', error);
+    }
+  };
 
   const handleClick = () => {
     const userRole = localStorage.getItem('userRole');

@@ -6,7 +6,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Edit, Mail, Phone, User, Shield, Calendar, Settings, BarChart3, Users } from "lucide-react";
+import { Edit, Mail, Phone, User, Shield, Calendar, Settings, BarChart3, Users, Volume2, Check } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import PersonnelProfileModal from "@/components/PersonnelProfileModal";
 import PasswordChangeModal from "@/components/PasswordChangeModal";
 import ActivityHistoryModal from "@/components/ActivityHistoryModal";
@@ -26,8 +33,8 @@ export default function AdminProfilePage() {
     loginCount: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [notificationSound, setNotificationSound] = useState<string>('hamzaaa');
 
-  // Kullanıcı ID'si localStorage'dan al
   const userId = typeof window !== "undefined" ? localStorage.getItem("userId") : null;
 
   useEffect(() => {
@@ -48,6 +55,7 @@ export default function AdminProfilePage() {
         
         const userData = await response.json();
         setUser(userData);
+        setNotificationSound(userData.notificationSound || 'hamzaaa');
         
         // Admin istatistiklerini getir
         await fetchAdminStats();
@@ -61,6 +69,32 @@ export default function AdminProfilePage() {
 
     fetchUserData();
   }, [userId]);
+
+  const handleNotificationSoundChange = async (newSound: string) => {
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/chat/user/${userId}/notification-sound`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notificationSound: newSound }),
+      });
+
+      if (response.ok) {
+        setNotificationSound(newSound);
+        
+        // Test için sesi çal
+        const audio = new Audio(`/sounds/${newSound}.mp3`);
+        audio.volume = 0.5;
+        audio.play();
+        
+        toast.success('Bildirim sesi güncellendi!');
+      } else {
+        toast.error('Bildirim sesi güncellenemedi');
+      }
+    } catch (error) {
+      console.error('Notification sound update error:', error);
+      toast.error('Bir hata oluştu');
+    }
+  };
 
   const fetchAdminStats = async () => {
     try {
@@ -347,6 +381,61 @@ export default function AdminProfilePage() {
                         </div>
                       </div>
                       <div className="text-2xl font-bold">{stats.loginCount}</div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Bildirim Sesi Ayarı */}
+              <Card className="mb-6">
+                <CardHeader>
+                  <CardTitle className="flex items-center gap-2">
+                    <Volume2 className="h-5 w-5" />
+                    Bildirim Sesi
+                  </CardTitle>
+                  <CardDescription>
+                    Mesaj bildirimleriniz için özel ses seçin
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <Select value={notificationSound} onValueChange={handleNotificationSoundChange}>
+                      <SelectTrigger className="w-full">
+                        <SelectValue placeholder="Bildirim sesi seçin" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="hamzaaa">
+                          <div className="flex items-center gap-2">
+                            <Volume2 className="h-4 w-4" />
+                            <span>Hamza Sesi</span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="ibraaaamabi">
+                          <div className="flex items-center gap-2">
+                            <Volume2 className="h-4 w-4" />
+                            <span>İbrahim Sesi</span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="lokmalaaaa">
+                          <div className="flex items-center gap-2">
+                            <Volume2 className="h-4 w-4" />
+                            <span>Lokman Sesi</span>
+                          </div>
+                        </SelectItem>
+                        <SelectItem value="muharrreeeeem">
+                          <div className="flex items-center gap-2">
+                            <Volume2 className="h-4 w-4" />
+                            <span>Muharrem Sesi</span>
+                          </div>
+                        </SelectItem>
+                      </SelectContent>
+                    </Select>
+                    
+                    <div className="flex items-center gap-2 p-3 bg-muted/50 rounded-lg">
+                      <Check className="h-5 w-5 text-green-500" />
+                      <p className="text-sm text-muted-foreground">
+                        Ses seçildiğinde otomatik olarak test edilir
+                      </p>
                     </div>
                   </div>
                 </CardContent>

@@ -29,21 +29,33 @@ import {
 
 interface Customer {
   _id: string;
-  company: string;
-  name: string;
-  email: string;
-  phone: string;
+  cariKod?: string;
+  cariUnvan1?: string;
+  cariUnvan2?: string;
+  cariGuid?: string;
+  email?: string;
+  phone?: string;
+  website?: string;
   address?: string;
   city?: string;
-  taxNumber?: string;
-  authorizedPerson?: string;
-  contactEmail?: string;
-  contactPhone?: string;
-  hasMaintenanceContract?: boolean;
-  maintenanceStartDate?: string;
-  maintenanceEndDate?: string;
-  status?: string;
+  district?: string;
+  vkn?: string;
+  taxOffice?: string;
+  eftAccountNumber?: string;
+  isActive?: boolean;
+  isLocked?: boolean;
+  isDeleted?: boolean;
+  eInvoiceEnabled?: boolean;
+  eInvoiceStartDate?: string;
+  smsNotification?: boolean;
+  emailNotification?: boolean;
+  reconciliationEmail?: string;
+  createDate?: string;
+  lastUpdateDate?: string;
+  createUser?: number;
+  lastUpdateUser?: number;
   createdAt: string;
+  updatedAt: string;
 }
 
 export default function NoMaintenanceCustomersPage() {
@@ -51,6 +63,117 @@ export default function NoMaintenanceCustomersPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const router = useRouter();
+
+  // Şehir isimlerini düzeltme fonksiyonu
+  const getCityName = (district: string | undefined): string => {
+    if (!district) return '';
+    
+    const cityMap: { [key: string]: string } = {
+      // Türkiye'nin 81 ili
+      'ADANA': 'Adana',
+      'ADIYAMAN': 'Adıyaman',
+      'AFYONKARAHISAR': 'Afyonkarahisar',
+      'AGRI': 'Ağrı',
+      'AMASYA': 'Amasya',
+      'ANKARA': 'Ankara',
+      'ANTALYA': 'Antalya',
+      'ARTVIN': 'Artvin',
+      'AYDIN': 'Aydın',
+      'BALIKESIR': 'Balıkesir',
+      'BILECIK': 'Bilecik',
+      'BINGOL': 'Bingöl',
+      'BITLIS': 'Bitlis',
+      'BOLU': 'Bolu',
+      'BURDUR': 'Burdur',
+      'BURSA': 'Bursa',
+      'CANAKKALE': 'Çanakkale',
+      'CANKIRI': 'Çankırı',
+      'CORUM': 'Çorum',
+      'DENIZLI': 'Denizli',
+      'DIYARBAKIR': 'Diyarbakır',
+      'EDIRNE': 'Edirne',
+      'ELAZIG': 'Elazığ',
+      'ERZINCAN': 'Erzincan',
+      'ERZURUM': 'Erzurum',
+      'ESKISEHIR': 'Eskişehir',
+      'GAZIANTEP': 'Gaziantep',
+      'GIRESUN': 'Giresun',
+      'GUMUSHANE': 'Gümüşhane',
+      'HAKKARI': 'Hakkari',
+      'HATAY': 'Hatay',
+      'ISPARTA': 'Isparta',
+      'MERSIN': 'Mersin',
+      'ISTANBUL': 'İstanbul',
+      'IZMIR': 'İzmir',
+      'KARS': 'Kars',
+      'KASTAMONU': 'Kastamonu',
+      'KAYSERI': 'Kayseri',
+      'KIRKLARELI': 'Kırklareli',
+      'KIRSEHIR': 'Kırşehir',
+      'KOCAELI': 'Kocaeli',
+      'KONYA': 'Konya',
+      'KUTAHYA': 'Kütahya',
+      'MALATYA': 'Malatya',
+      'MANISA': 'Manisa',
+      'KAHRAMANMARAS': 'Kahramanmaraş',
+      'MARDIN': 'Mardin',
+      'MUGLA': 'Muğla',
+      'MUS': 'Muş',
+      'NEVSEHIR': 'Nevşehir',
+      'NIGDE': 'Niğde',
+      'ORDU': 'Ordu',
+      'RIZE': 'Rize',
+      'SAKARYA': 'Sakarya',
+      'SAMSUN': 'Samsun',
+      'SIIRT': 'Siirt',
+      'SINOP': 'Sinop',
+      'SIVAS': 'Sivas',
+      'TEKIRDAG': 'Tekirdağ',
+      'TOKAT': 'Tokat',
+      'TRABZON': 'Trabzon',
+      'TUNCELI': 'Tunceli',
+      'SANLIURFA': 'Şanlıurfa',
+      'USAK': 'Uşak',
+      'VAN': 'Van',
+      'YOZGAT': 'Yozgat',
+      'ZONGULDAK': 'Zonguldak',
+      'AKSARAY': 'Aksaray',
+      'BAYBURT': 'Bayburt',
+      'KARAMAN': 'Karaman',
+      'KIRIKKALE': 'Kırıkkale',
+      'BATMAN': 'Batman',
+      'SIRNAK': 'Şırnak',
+      'BARTIN': 'Bartın',
+      'ARDAHAN': 'Ardahan',
+      'IGDIR': 'Iğdır',
+      'YALOVA': 'Yalova',
+      'KARABUK': 'Karabük',
+      'KILIS': 'Kilis',
+      'OSMANIYE': 'Osmaniye',
+      'DUZCE': 'Düzce',
+      
+      // Kısaltmalar ve alternatif yazımlar
+      'G.ANTEP': 'Gaziantep',
+      'STANBUL': 'İstanbul',
+      'Ş.URFA': 'Şanlıurfa',
+      'S.URFA': 'Şanlıurfa',
+      'ICEL': 'Mersin',
+      'SEHIR': 'Şehir',
+      'VAR': 'Var',
+      '0': 'Bilinmiyor',
+      '1': 'Bilinmiyor',
+      '2': 'Bilinmiyor',
+      '3': 'Bilinmiyor',
+      '4': 'Bilinmiyor',
+      '5': 'Bilinmiyor',
+      '6': 'Bilinmiyor',
+      '7': 'Bilinmiyor',
+      '8': 'Bilinmiyor',
+      '9': 'Bilinmiyor'
+    };
+    
+    return cityMap[district.toUpperCase()] || district;
+  };
 
   useEffect(() => {
     fetchCustomers();
@@ -62,8 +185,8 @@ export default function NoMaintenanceCustomersPage() {
       
       if (response.ok) {
         const data = await response.json();
-        const noMaintenanceCustomers = data.filter((c: Customer) => !c.hasMaintenanceContract);
-        setCustomers(noMaintenanceCustomers);
+        // Yeni veritabanı yapısında tüm müşterileri göster (hasMaintenanceContract alanı yok)
+        setCustomers(data);
       } else {
         toast.error('Müşteriler yüklenemedi');
       }
@@ -76,14 +199,15 @@ export default function NoMaintenanceCustomersPage() {
   };
 
   const filteredCustomers = customers.filter(customer =>
-    customer.company?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    customer.city?.toLowerCase().includes(searchTerm.toLowerCase())
+    customer.cariUnvan1?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    customer.cariUnvan2?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    customer.cariKod?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    customer.city?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    customer.vkn?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const activeCustomers = customers.filter(c => c.status === 'active').length;
-  const inactiveCustomers = customers.filter(c => c.status === 'inactive').length;
+  const activeCustomers = customers.filter(c => c.isActive === true).length;
+  const inactiveCustomers = customers.filter(c => c.isActive === false).length;
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -213,7 +337,7 @@ export default function NoMaintenanceCustomersPage() {
               </div>
             ) : (
               filteredCustomers.map((customer) => {
-                const isActive = customer.status === 'active';
+                const isActive = customer.isActive === true;
                 const isNewCustomer = customer.createdAt && new Date(customer.createdAt) > new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
                 
                 return (
@@ -229,17 +353,17 @@ export default function NoMaintenanceCustomersPage() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <h3 className="font-bold mb-1 truncate">
-                            {customer.company}
+                            {customer.cariUnvan1 || customer.cariUnvan2 || 'Firma Adı Yok'}
                           </h3>
                           <p className="text-sm text-muted-foreground flex items-center gap-1">
                             <Users className="h-3 w-3" />
-                            {customer.name}
+                            {customer.cariKod || 'Kod Yok'}
                           </p>
                         </div>
                         <div className="flex flex-col gap-1">
-                          <Badge variant="outline">
+                          <Badge variant={isActive ? "default" : "destructive"}>
                             <UserPlus className="h-3 w-3 mr-1" />
-                            Potansiyel
+                            {isActive ? 'Aktif' : 'Pasif'}
                           </Badge>
                           {isNewCustomer && (
                             <Badge variant="secondary" className="text-xs">
@@ -252,18 +376,16 @@ export default function NoMaintenanceCustomersPage() {
 
                       {/* Contact Info */}
                       <div className="space-y-2 mb-4">
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Mail className="h-4 w-4" />
-                          <span className="truncate">{customer.email}</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                          <Phone className="h-4 w-4" />
-                          <span>{customer.phone}</span>
-                        </div>
-                        {customer.city && (
+                        {customer.district && (
                           <div className="flex items-center gap-2 text-sm text-muted-foreground">
                             <MapPin className="h-4 w-4" />
-                            <span>{customer.city}</span>
+                            <span>{getCityName(customer.district)}</span>
+                          </div>
+                        )}
+                        {customer.vkn && (
+                          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Shield className="h-4 w-4" />
+                            <span>VKN: {customer.vkn}</span>
                           </div>
                         )}
                       </div>
