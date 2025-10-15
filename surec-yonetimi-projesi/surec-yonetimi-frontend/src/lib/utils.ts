@@ -16,3 +16,11 @@ export function getApiUrl(): string {
 export function getApiBaseUrl(): string {
   return `${getApiUrl()}/api`;
 }
+
+// Socket URL için helper fonksiyon
+export function getSocketUrl(): string {
+  if (typeof window !== 'undefined') {
+    return `http://${window.location.hostname}:5000`;
+  }
+  return 'http://localhost:5000'; // Server-side fallback
+}
