@@ -367,7 +367,7 @@ export default function AdminCalendarWidget() {
                         {task.assignedTo && (
                           <div className="flex items-center gap-2 mt-2 p-2 rounded-lg bg-slate-100 dark:bg-gray-700/50">
                             <Avatar className="h-7 w-7 border-2 border-slate-300 dark:border-gray-600">
-                              <AvatarImage src={task.assignedTo.avatar ? `${getApiUrl()}${task.assignedTo.avatar}` : ''} />
+                              <AvatarImage src={task.assignedTo.avatar ? `${getApiUrl()}${task.assignedTo.avatar}` : undefined} />
                               <AvatarFallback className="text-xs bg-gradient-to-br from-slate-600 to-slate-700 text-white">
                                 {task.assignedTo.name?.[0] || 'U'}
                               </AvatarFallback>

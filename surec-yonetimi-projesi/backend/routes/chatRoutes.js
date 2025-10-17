@@ -90,36 +90,6 @@ router.put('/user/:userId/status', async (req, res) => {
   }
 });
 
-// Update notification sound
-router.put('/user/:userId/notification-sound', async (req, res) => {
-  try {
-    const { userId } = req.params;
-    const { notificationSound } = req.body;
-    
-    const validSounds = ['hamzaaa', 'ibraaaamabi', 'lokmalaaaa', 'muharrreeeeem'];
-    if (!validSounds.includes(notificationSound)) {
-      return res.status(400).json({ msg: 'Geçersiz bildirim sesi' });
-    }
-    
-    const user = await User.findByIdAndUpdate(
-      userId,
-      { notificationSound },
-      { new: true }
-    );
-    
-    if (!user) {
-      return res.status(404).json({ msg: 'Kullanıcı bulunamadı' });
-    }
-    
-    res.json({
-      success: true,
-      notificationSound: user.notificationSound
-    });
-  } catch (error) {
-    console.error('Notification sound update error:', error);
-    res.status(500).json({ msg: 'Bildirim sesi güncellenemedi', error: error.message });
-  }
-});
 
 // ========================
 // ONLINE STATUS - DEPRECATED (Socket handles this now)

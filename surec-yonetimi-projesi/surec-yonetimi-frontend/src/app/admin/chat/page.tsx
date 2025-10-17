@@ -42,7 +42,6 @@ interface User {
   lastSeen?: string;
   isOnline?: boolean;
   statusMessage?: string;
-  notificationSound?: string;
 }
 
 interface Message {
@@ -87,59 +86,6 @@ export default function AdminChatPage() {
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const currentUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') : null;
-  const [currentUserSound, setCurrentUserSound] = useState<string>('hamzaaa');
-
-  // Bildirim sesleri - Gerçek ses dosyaları
-  const playNotificationSound = (soundType: string = 'hamzaaa') => {
-    try {
-      const soundFile = `/sounds/${soundType}.mp3`;
-      console.log('🔊 Playing notification sound:', soundFile);
-      
-      const audio = new Audio(soundFile);
-      audio.volume = 0.7; // Ses seviyesi artırıldı
-      audio.preload = 'auto'; // Ses dosyasını önceden yükle
-      
-      // Ses yükleme durumunu kontrol et
-      audio.addEventListener('loadstart', () => console.log('📥 Audio loading started'));
-      audio.addEventListener('canplay', () => console.log('✅ Audio can play'));
-      audio.addEventListener('error', (e) => console.error('❌ Audio error:', e));
-      audio.addEventListener('ended', () => console.log('🏁 Audio ended'));
-      
-      // Audio permission için user interaction simulation
-      const playWithPermission = () => {
-        audio.play().then(() => {
-          console.log('🎵 Audio playing successfully');
-        }).catch(error => {
-          console.error('❌ Audio play failed:', error);
-        });
-      };
-      
-      // İlk kez permission al
-      if (!(window as any).audioPermissionGranted) {
-        const silentAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=');
-        silentAudio.volume = 0;
-        silentAudio.play().then(() => {
-          (window as any).audioPermissionGranted = true;
-          playWithPermission();
-        }).catch(() => {
-          const clickEvent = new MouseEvent('click', { bubbles: true });
-          document.dispatchEvent(clickEvent);
-          (window as any).audioPermissionGranted = true;
-          playWithPermission();
-        });
-      } else {
-        playWithPermission();
-      }
-    } catch (error) {
-      console.error('❌ Notification sound error:', error);
-    }
-  };
-
-  // Test fonksiyonu - manuel ses çalma
-  const testNotificationSound = () => {
-    console.log('🧪 Testing notification sound...');
-    playNotificationSound('hamzaaa');
-  };
 
   // ========================
   // AUDIO PERMISSION
@@ -166,11 +112,7 @@ export default function AdminChatPage() {
     const fetchMe = async () => {
       try {
     if (!currentUserId) return;
-        const res = await fetch(`${getApiBaseUrl()}/users/${currentUserId}`);
-        if (res.ok) {
-          const me = await res.json();
-          if (me?.notificationSound) setCurrentUserSound(me.notificationSound);
-        }
+        // Bildirim sesi seçimi kaldırıldı
       } catch {}
     };
     fetchMe();
@@ -205,9 +147,8 @@ export default function AdminChatPage() {
 
         console.log('⚡ Nudge received (admin chat):', data);
 
-        // Backend'den gelen hedef kullanıcının sesini çal
-        const soundToPlay = data.targetUserSound || currentUserSound || 'hamzaaa';
-        playNotificationSound(soundToPlay);
+        // Dürtme sesi çalma (sadece dürtme için)
+        // Bildirim sesi seçimi kaldırıldı
 
         toast.warning(
           <div className="flex items-start gap-3">
@@ -773,14 +714,6 @@ export default function AdminChatPage() {
                 Admin Chat
               </h2>
               <div className="flex items-center gap-2">
-                  <Button
-                  variant="outline" 
-                  size="sm"
-                  onClick={testNotificationSound}
-                  className="text-xs"
-                >
-                  🔊 Test
-                  </Button>
                 <Badge variant="outline">{filteredUsers.length} Kullanıcı</Badge>
                     </div>
                   </div>

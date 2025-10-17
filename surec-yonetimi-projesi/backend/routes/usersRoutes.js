@@ -318,10 +318,10 @@ router.post('/:id/nudge', async (req, res) => {
                 taskId: taskId,
                 taskTitle: taskTitle,
                 motivationalMessage: finalMotivationalMessage,
-                targetUserSound: targetUser.notificationSound,
+                targetUserSound: targetUser.notificationSound || 'hamzaaa',
                 timestamp: new Date().toISOString()
             });
-            console.log('Dürt bildirimi gönderildi:', targetUser.email, `Ses: ${targetUser.notificationSound || 'none'}`, taskTitle ? `- Görev: ${taskTitle}` : '');
+            console.log('Dürt bildirimi gönderildi:', targetUser.email, `Ses: ${targetUser.notificationSound || 'hamzaaa'}`, taskTitle ? `- Görev: ${taskTitle}` : '');
         }
 
         res.json({ 

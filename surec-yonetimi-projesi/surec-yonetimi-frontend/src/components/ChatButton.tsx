@@ -11,16 +11,14 @@ import { getApiBaseUrl } from '@/lib/utils';
 
 export default function ChatButton() {
   const [unreadCount, setUnreadCount] = useState(0);
-  const [userSound, setUserSound] = useState<string | undefined>(undefined);
   const router = useRouter();
   const pathname = usePathname();
   const socketRef = useRef<any>(null);
 
-  // Nudge için ses çalma (kullanıcının seçtiği ses)
+  // Nudge için ses çalma (sadece dürtme sesleri)
   const playNudgeSound = (soundType?: string) => {
     try {
-      const chosen = soundType || userSound;
-      if (!chosen) return; // default yok
+      const chosen = soundType || 'hamzaaa'; // Default ses
       const file = `/sounds/${chosen}.mp3`;
       
       // Audio permission için user interaction simulation
@@ -99,7 +97,7 @@ export default function ChatButton() {
         console.log('⚡ Nudge received (global):', data);
         
         // Backend'den gelen hedef kullanıcının sesini çal
-        const soundToPlay = data.targetUserSound || userSound;
+        const soundToPlay = data.targetUserSound || 'hamzaaa';
         playNudgeSound(soundToPlay);
         toast.warning('Dürtüldünüz! ' + (data.message || ''));
       } catch (err) {
@@ -117,21 +115,8 @@ export default function ChatButton() {
     };
   }, [pathname]);
 
-  // Kullanıcının seçtiği bildirimi sesi ve audio iznini al
+  // Audio iznini al
   useEffect(() => {
-    const userId = localStorage.getItem('userId');
-    if (!userId) return;
-
-    const fetchUser = async () => {
-      try {
-        const res = await fetch(`${getApiBaseUrl()}/users/${userId}`);
-        if (res.ok) {
-          const user = await res.json();
-          if (user?.notificationSound) setUserSound(user.notificationSound);
-        }
-      } catch {}
-    };
-
     const requestAudioPermission = async () => {
       try {
         const silent = new Audio('/sounds/hamzaaa.mp3');
@@ -141,7 +126,6 @@ export default function ChatButton() {
       } catch {}
     };
 
-    fetchUser();
     requestAudioPermission();
   }, []);
 

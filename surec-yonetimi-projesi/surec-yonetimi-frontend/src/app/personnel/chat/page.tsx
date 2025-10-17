@@ -36,7 +36,6 @@ interface User {
   lastSeen?: string;
   isOnline?: boolean;
   statusMessage?: string;
-  notificationSound?: string;
 }
 
 interface Message {
@@ -81,95 +80,6 @@ export default function PersonnelChatPage() {
   const inputRef = useRef<HTMLInputElement>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const currentUserId = typeof window !== 'undefined' ? localStorage.getItem('userId') : null;
-  const [currentUserSound, setCurrentUserSound] = useState<string>('hamzaaa');
-
-  // Bildirim sesleri - Gerçek ses dosyaları
-  const playNotificationSound = (soundType?: string) => {
-    try {
-      if (!soundType) return;
-      const soundFile = `/sounds/${soundType}.mp3`;
-      console.log('🔊 Playing notification sound:', soundFile);
-      
-      const audio = new Audio(soundFile);
-      audio.volume = 0.7; // Ses seviyesi artırıldı
-      audio.preload = 'auto'; // Ses dosyasını önceden yükle
-      
-      // Ses yükleme durumunu kontrol et
-      audio.addEventListener('loadstart', () => console.log('📥 Audio loading started'));
-      audio.addEventListener('canplay', () => console.log('✅ Audio can play'));
-      audio.addEventListener('error', (e) => console.error('❌ Audio error:', e));
-      audio.addEventListener('ended', () => console.log('🏁 Audio ended'));
-      
-      // Audio permission için user interaction simulation
-      const playWithPermission = () => {
-        audio.play().then(() => {
-          console.log('🎵 Audio playing successfully');
-        }).catch(error => {
-          console.error('❌ Audio play failed:', error);
-        });
-      };
-      
-      // İlk kez permission al
-      if (!(window as any).audioPermissionGranted) {
-        const silentAudio = new Audio('data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=');
-        silentAudio.volume = 0;
-        silentAudio.play().then(() => {
-          (window as any).audioPermissionGranted = true;
-          playWithPermission();
-        }).catch(() => {
-          const clickEvent = new MouseEvent('click', { bubbles: true });
-          document.dispatchEvent(clickEvent);
-          (window as any).audioPermissionGranted = true;
-          playWithPermission();
-        });
-      } else {
-        playWithPermission();
-      }
-    } catch (error) {
-      console.error('❌ Notification sound error:', error);
-    }
-  };
-
-  // Test fonksiyonu - manuel ses çalma
-  const testNotificationSound = () => {
-    console.log('🧪 Testing notification sound...');
-    playNotificationSound(currentUserSound);
-  };
-
-  // ========================
-  // AUDIO PERMISSION
-  // ========================
-  useEffect(() => {
-    // Sayfa yüklendiğinde ses izni al
-    const requestAudioPermission = async () => {
-      try {
-        const audio = new Audio('/sounds/hamzaaa.mp3');
-        audio.volume = 0;
-        await audio.play();
-        audio.pause();
-        console.log('✅ Audio permission granted');
-      } catch (error) {
-        console.log('⚠️ Audio permission needed - user interaction required');
-      }
-    };
-    
-    requestAudioPermission();
-  }, []);
-
-  // Kullanıcının kendi bildirim sesi
-  useEffect(() => {
-    const fetchMe = async () => {
-      try {
-    if (!currentUserId) return;
-        const res = await fetch(`${getApiBaseUrl()}/users/${currentUserId}`);
-        if (res.ok) {
-          const me = await res.json();
-          if (me?.notificationSound) setCurrentUserSound(me.notificationSound);
-        }
-      } catch {}
-    };
-    fetchMe();
-  }, [currentUserId]);
 
   // ========================
   // SOCKET CONNECTION
@@ -205,9 +115,6 @@ export default function PersonnelChatPage() {
 
         console.log('⚡ Nudge received:', data);
 
-        // Backend'den gelen hedef kullanıcının sesini çal
-        const soundToPlay = data.targetUserSound || currentUserSound || 'hamzaaa';
-        playNotificationSound(soundToPlay);
 
         toast.warning(
           <div className="flex items-start gap-3">
@@ -771,14 +678,6 @@ export default function PersonnelChatPage() {
                 <MessageSquare className="h-5 w-5" />
                 Mesajlar
               </h2>
-                  <Button
-                variant="outline" 
-                size="sm"
-                onClick={testNotificationSound}
-                className="text-xs"
-              >
-                🔊 Test
-                  </Button>
                 </div>
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
